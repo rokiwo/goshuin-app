@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet CSS の基本調整と和モダン風カスタマイズ */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  font-family: 'Noto Sans JP', sans-serif;
+  background-color: #f2ece1;
+  z-index: 10;
+}
+
+/* スクロールバー非表示ユーティリティ */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 和紙テクスチャ風の微細な背景パターン */
+.washi-pattern {
+  background-color: #fcfaf2;
+  background-image: radial-gradient(#c5a059 0.45px, transparent 0.45px), radial-gradient(#c93a40 0.45px, #fcfaf2 0.45px);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+  background-blend-mode: multiply;
+}
+
+/* 蛇腹式御朱印帳のページ装飾 */
+.jabara-card {
+  position: relative;
+  background: linear-gradient(135deg, #fffdf7 0%, #f8f2e4 50%, #fffdf7 100%);
+  box-shadow:
+    0 6px 18px rgba(26, 26, 26, 0.08),
+    inset 0 0 0 1px rgba(197, 160, 89, 0.35);
+}
+
+.jabara-card::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 5px;
+  right: 5px;
+  border: 1px solid rgba(197, 160, 89, 0.28);
+  pointer-events: none;
+  border-radius: 0.75rem;
+}
+
+/* 本物の蛇腹折りの立体感（見開きページ用） */
+.jabara-fold-left {
+  background: linear-gradient(90deg, #f3ecda 0%, #fffdf8 14%, #fffdf8 92%, #ede3cc 100%);
+  box-shadow:
+    inset -8px 0 14px -8px rgba(138, 109, 59, 0.22),
+    0 8px 20px rgba(26, 26, 26, 0.09);
+}
+
+.jabara-fold-right {
+  background: linear-gradient(90deg, #ede3cc 0%, #fffdf8 8%, #fffdf8 86%, #f3ecda 100%);
+  box-shadow:
+    inset 8px 0 14px -8px rgba(138, 109, 59, 0.22),
+    0 8px 20px rgba(26, 26, 26, 0.09);
+}
+
+/* 金箔・水引風の繊細な飾り罫線 */
+.gold-corner-frame {
+  position: relative;
+}
+.gold-corner-frame::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(197, 160, 89, 0.45);
+  border-radius: 0.65rem;
+  pointer-events: none;
+}
+
+/* 縦書きテキスト用ユーティリティ */
+.writing-vertical {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+}
+
+/* カスタムLeafletマーカーのアニメーション */
+.custom-pin-wrapper {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.custom-pin-wrapper:hover {
+  transform: scale(1.15) translateY(-4px);
+}
+
+/* ==================== 3D表紙オープン＆ページめくり演出 ==================== */
+.book-perspective {
+  perspective: 1500px;
+}
+
+@keyframes coverOpen3D {
+  0% {
+    transform: rotateY(0deg) scale(0.92);
+    opacity: 1;
+  }
+  55% {
+    transform: rotateY(-110deg) scale(1.02);
+    opacity: 0.9;
+  }
+  100% {
+    transform: rotateY(-150deg) scale(1);
+    opacity: 0;
+  }
+}
+
+.animate-cover-open {
+  transform-origin: left center;
+  animation: coverOpen3D 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes pageFlipNext {
+  0% {
+    transform: rotateY(55deg) scale(0.96);
+    opacity: 0.2;
+  }
+  100% {
+    transform: rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pageFlipPrev {
+  0% {
+    transform: rotateY(-55deg) scale(0.96);
+    opacity: 0.2;
+  }
+  100% {
+    transform: rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-page-next {
+  transform-origin: left center;
+  animation: pageFlipNext 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-page-prev {
+  transform-origin: right center;
+  animation: pageFlipPrev 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ==================== 天空の御朱印ウォール（ぶわーっと広がる浮遊演出） ==================== */
+@keyframes skyBurstOut {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 120px, -300px) scale(0.15) rotate(-12deg);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(0, -6px, 20px) scale(1.04) rotate(1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes gentleFloat {
+  0%, 100% {
+    transform: translateY(0px) rotate(var(--card-tilt, 0deg));
+  }
+  50% {
+    transform: translateY(-6px) rotate(var(--card-tilt, 0deg));
+  }
+}
+
+.animate-sky-burst {
+  animation:
+    skyBurstOut 0.65s cubic-bezier(0.18, 1.15, 0.36, 1) backwards,
+    gentleFloat 4.2s ease-in-out 0.7s infinite;
+}
+
+.sky-cosmos-bg {
+  background:
+    radial-gradient(circle at 50% 25%, rgba(197, 160, 89, 0.22) 0%, transparent 55%),
+    radial-gradient(circle at 20% 80%, rgba(201, 58, 64, 0.18) 0%, transparent 50%),
+    linear-gradient(180deg, #0b0a09 0%, #171412 50%, #0d0b0a 100%);
+}
