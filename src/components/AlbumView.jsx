@@ -38,6 +38,7 @@ import {
   rotateBase64Image90,
   saveVisitRecord
 } from '../db/database.js';
+import { useBackHandler } from '../contexts/BackHandlerContext.jsx';
 
 // 着せ替え可能な5種類の御朱印帳装丁テーマ（かわいい＆おしゃれな和モダン配色）
 const COVER_THEMES = [
@@ -165,32 +166,37 @@ export default function AlbumView({
     localStorage.setItem('goshuin_sort_order', sortOrder);
   }, [sortOrder]);
 
-  // モーダルや拡大表示が開いているとき、Android戻るボタンでそれらを閉じる
-  useEffect(() => {
-    const isAnyModalOpen =
-      Boolean(lightboxRecord) ||
-      Boolean(showcaseMode) ||
-      isBookModalOpen ||
-      isAssignModalOpen;
+  // 写真拡大ライトボックスが開いている場合（優先度25）
+  useBackHandler({
+    id: 'album-photo-lightbox',
+    isOpen: Boolean(lightboxRecord),
+    onBack: () => setLightboxRecord(null),
+    priority: 25
+  });
 
-    if (!isAnyModalOpen) return;
+  // 特別鑑賞モードが開いている場合（優先度25）
+  useBackHandler({
+    id: 'album-showcase-mode',
+    isOpen: Boolean(showcaseMode),
+    onBack: () => setShowcaseMode(null),
+    priority: 25
+  });
 
-    try {
-      window.history.pushState({ albumModalOpen: true }, '', window.location.href);
-    } catch {}
+  // 実物御朱印帳への振り分けモーダル（優先度15）
+  useBackHandler({
+    id: 'album-assign-modal',
+    isOpen: isAssignModalOpen,
+    onBack: () => setIsAssignModalOpen(false),
+    priority: 15
+  });
 
-    const handlePop = () => {
-      if (lightboxRecord) setLightboxRecord(null);
-      else if (showcaseMode) setShowcaseMode(null);
-      else if (isAssignModalOpen) setIsAssignModalOpen(false);
-      else if (isBookModalOpen) setIsBookModalOpen(false);
-    };
-
-    window.addEventListener('popstate', handlePop, { once: true });
-    return () => {
-      window.removeEventListener('popstate', handlePop);
-    };
-  }, [lightboxRecord, showcaseMode, isBookModalOpen, isAssignModalOpen]);
+  // 実物御朱印帳の作成・編集モーダル（優先度15）
+  useBackHandler({
+    id: 'album-book-modal',
+    isOpen: isBookModalOpen,
+    onBack: () => setIsBookModalOpen(false),
+    priority: 15
+  });
 
   const currentTheme =
     COVER_THEMES.find((t) => t.id === themeId) || COVER_THEMES[0];

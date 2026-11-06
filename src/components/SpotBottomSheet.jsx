@@ -46,6 +46,7 @@ import {
   fetchRealWebPhotos,
   buildRealGoshuinLinks
 } from '../services/realGoshuinService.js';
+import { useBackHandler } from '../contexts/BackHandlerContext.jsx';
 
 /**
  * ピンまたはカードをタップした際に画面下部からスムーズにスライドアップする
@@ -104,6 +105,14 @@ export default function SpotBottomSheet({
   const [isUploading, setIsUploading] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+
+  // 写真拡大ライトボックスが開いている場合、戻るボタンで閉じる（優先度20）
+  useBackHandler({
+    id: 'spot-photo-lightbox',
+    isOpen: isLightboxOpen,
+    onBack: () => setIsLightboxOpen(false),
+    priority: 20
+  });
 
   // Web上の実在写真ステート
   const [webPhotos, setWebPhotos] = useState([]);

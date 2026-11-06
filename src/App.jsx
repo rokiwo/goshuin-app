@@ -18,11 +18,14 @@ import PastGoshuinModal from './components/PastGoshuinModal.jsx';
 import CoupleSyncModal from './components/CoupleSyncModal.jsx';
 import DataBackupModal from './components/DataBackupModal.jsx';
 import PwaInstallButton from './components/PwaInstallButton.jsx';
-import { useAndroidBackHandler } from './hooks/useAndroidBackHandler.js';
+import ExitConfirmModal from './components/ExitConfirmModal.jsx';
+import {
+  BackHandlerProvider,
+  useBackHandler,
+  useBackHandlerContext
+} from './contexts/BackHandlerContext.jsx';
 
-export default function App() {
-  // アクティブタブ: 'map' (探す) | 'concierge' (AI巡拝コース) | 'album' (御朱印帳)
-  const [activeTab, setActiveTab] = useState('map');
+function AppContent({ activeTab, setActiveTab }) {
 
   // モーダル開閉ステート
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -70,38 +73,45 @@ export default function App() {
     `主要御朱印社寺 ${SEED_SPOTS.length}件＋周辺検索中`
   );
 
-  // 開いているモーダルのリスト（戻るボタンで順次閉じる用）
-  const activeModals = React.useMemo(() => {
-    const list = [];
-    if (selectedSpot) list.push('spot');
-    if (isBackupModalOpen) list.push('backup');
-    if (isAddPastModalOpen) list.push('past');
-    if (isCoupleModalOpen) list.push('couple');
-    if (isAiModalOpen) list.push('ai');
-    return list;
-  }, [selectedSpot, isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen]);
-
-  const closeTopModal = useCallback(() => {
-    if (isBackupModalOpen) {
-      setIsBackupModalOpen(false);
-    } else if (isAddPastModalOpen) {
-      setIsAddPastModalOpen(false);
-    } else if (isCoupleModalOpen) {
-      setIsCoupleModalOpen(false);
-    } else if (isAiModalOpen) {
-      setIsAiModalOpen(false);
-    } else if (selectedSpot) {
-      setSelectedSpot(null);
-    }
-  }, [isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen, selectedSpot]);
-
-  // Android戻るボタンでホーム画面に戻るのを防ぐガードフック
-  const { exitToastVisible } = useAndroidBackHandler({
-    activeTab,
-    setActiveTab,
-    activeModals,
-    closeTopModal
+  // ★戻るボタン連動ハンドラー登録（寺社詳細・各モーダル）
+  // 寺社を選択した状態で閉じるを押さずに戻るを押した場合、寺社詳細が閉じてマップ画面に戻る（アプリは落ちない）
+  useBackHandler({
+    id: 'spot-detail-sheet',
+    isOpen: Boolean(selectedSpot),
+    onBack: () => setSelectedSpot(null),
+    priority: 10
   });
+
+  useBackHandler({
+    id: 'backup-modal',
+    isOpen: isBackupModalOpen,
+    onBack: () => setIsBackupModalOpen(false),
+    priority: 10
+  });
+
+  useBackHandler({
+    id: 'add-past-modal',
+    isOpen: isAddPastModalOpen,
+    onBack: () => setIsAddPastModalOpen(false),
+    priority: 10
+  });
+
+  useBackHandler({
+    id: 'couple-modal',
+    isOpen: isCoupleModalOpen,
+    onBack: () => setIsCoupleModalOpen(false),
+    priority: 10
+  });
+
+  useBackHandler({
+    id: 'ai-settings-modal',
+    isOpen: isAiModalOpen,
+    onBack: () => setIsAiModalOpen(false),
+    priority: 10
+  });
+
+  // アプリ終了確認アナウンスの開閉ステート
+  const { isExitConfirmOpen, setIsExitConfirmOpen } = useBackHandlerContext();
 
   // 検索半径（km）：5 / 10 / 15 / 20 から選択（前回の選択を記憶）
   const [searchRadiusKm, setSearchRadiusKm] = useState(() => {
@@ -468,14 +478,26 @@ export default function App() {
           }}
         />
 
-        {/* Android戻るボタンガード: もう一度戻ると終了しますトースト */}
-        {exitToastVisible && (
-          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-sumi/95 text-washi border border-kin px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-serif animate-bounce pointer-events-none">
-            <span className="w-2 h-2 rounded-full bg-kin animate-ping" />
-            <span>もう一度「戻る」を押すと終了します</span>
-          </div>
-        )}
+        {/* どこからでもアプリを終了しようとした際に表示される確認アナウンス */}
+        <ExitConfirmModal
+          isOpen={isExitConfirmOpen}
+          onClose={() => setIsExitConfirmOpen(false)}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * アプリのルートエントリーコンポーネント
+ * 戻るボタン集中管理プロバイダー（BackHandlerProvider）で全体をラップ
+ */
+export default function App() {
+  const [activeTab, setActiveTab] = useState('map');
+
+  return (
+    <BackHandlerProvider activeTab={activeTab} setActiveTab={setActiveTab}>
+      <AppContent activeTab={activeTab} setActiveTab={setActiveTab} />
+    </BackHandlerProvider>
   );
 }
