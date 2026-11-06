@@ -22,7 +22,8 @@ import {
   Plus,
   Settings,
   ChevronRight,
-  HardDrive
+  HardDrive,
+  ArrowUpDown
 } from 'lucide-react';
 import GoshuinSampleGraphic from './GoshuinSampleGraphic.jsx';
 import GoshuinShowcaseModal from './GoshuinShowcaseModal.jsx';
@@ -136,6 +137,11 @@ export default function AlbumView({
     () => localStorage.getItem('goshuin_book_viewmode') || 'jabara'
   );
 
+  // 御朱印の並び順（'asc': 古い順/拝受順, 'desc': 新しい順/最新参拝順）
+  const [sortOrder, setSortOrder] = useState(
+    () => localStorage.getItem('goshuin_sort_order') || 'asc'
+  );
+
   const [tabFilter, setTabFilter] = useState('all');
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [lightboxRecord, setLightboxRecord] = useState(null);
@@ -154,6 +160,10 @@ export default function AlbumView({
   useEffect(() => {
     localStorage.setItem('goshuin_book_viewmode', viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    localStorage.setItem('goshuin_sort_order', sortOrder);
+  }, [sortOrder]);
 
   // モーダルや拡大表示が開いているとき、Android戻るボタンでそれらを閉じる
   useEffect(() => {
@@ -197,8 +207,8 @@ export default function AlbumView({
       ? visitRecords
       : visitRecords.filter((r) => r.bookId === selectedBookId);
 
-  // 御朱印をもらった順番（参拝日順・第1頁から時系列順）にソート
-  const visitedList = sortVisitsByReceivedOrder(bookScopedRecords);
+  // 御朱印の並び順（古い順 ⇔ 新しい順）にソート
+  const visitedList = sortVisitsByReceivedOrder(bookScopedRecords, sortOrder);
 
   const totalVisited = visitedList.length;
   const totalPhotos = visitedList.filter((r) => Boolean(r.photoDataUrl)).length;
@@ -751,61 +761,93 @@ export default function AlbumView({
         </button>
       </div>
 
-      {/* 絞り込みピル ＆ 表示モード切替（蛇腹ブック / グリッド） */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {[
-            { id: 'all', label: `すべて (${totalVisited})` },
-            { id: 'photo', label: `写真 (${totalPhotos})` },
-            { id: 'shrine', label: `⛩️神社 (${shrineCount})` },
-            { id: 'temple', label: `☸️お寺 (${templeCount})` }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setTabFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-serif font-bold transition whitespace-nowrap ${
-                tabFilter === tab.id
-                  ? 'bg-sumi text-kin border border-kin shadow-sm'
-                  : 'bg-washi text-sumi-muted border border-washi-border'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      {/* 絞り込みピル */}
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+        {[
+          { id: 'all', label: `すべて (${totalVisited})` },
+          { id: 'photo', label: `写真 (${totalPhotos})` },
+          { id: 'shrine', label: `⛩️神社 (${shrineCount})` },
+          { id: 'temple', label: `☸️お寺 (${templeCount})` }
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setTabFilter(tab.id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-serif font-bold transition whitespace-nowrap shrink-0 ${
+              tabFilter === tab.id
+                ? 'bg-sumi text-kin border border-kin shadow-sm'
+                : 'bg-washi text-sumi-muted border border-washi-border'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        {displayStyle === 'timeline' && (
-          <div className="flex items-center bg-washi border border-washi-border rounded-full p-0.5 shrink-0 shadow-sm">
+      {/* 時系列ビュー専用：表示スタイル切替 ＆ 並び順切替（古い順 ⇔ 新しい順） */}
+      {displayStyle === 'timeline' && (
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          {/* 左：蛇腹帖 / 一覧 切替 */}
+          <div className="flex items-center bg-washi border border-washi-border rounded-full p-0.5 shadow-sm shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('jabara')}
               title="蛇腹ブック表示"
-              className={`px-2.5 py-1 rounded-full text-[10px] font-serif font-bold flex items-center gap-1 transition ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold flex items-center gap-1 transition ${
                 viewMode === 'jabara'
                   ? 'bg-shuiro text-washi shadow-sm'
-                  : 'text-sumi-muted'
+                  : 'text-sumi-muted hover:text-sumi'
               }`}
             >
-              <BookOpenText className="w-3 h-3" />
+              <BookOpenText className="w-3.5 h-3.5" />
               <span>蛇腹帖</span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('grid')}
               title="2列ギャラリー表示"
-              className={`px-2.5 py-1 rounded-full text-[10px] font-serif font-bold flex items-center gap-1 transition ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold flex items-center gap-1 transition ${
                 viewMode === 'grid'
                   ? 'bg-shuiro text-washi shadow-sm'
-                  : 'text-sumi-muted'
+                  : 'text-sumi-muted hover:text-sumi'
               }`}
             >
-              <LayoutGrid className="w-3 h-3" />
+              <LayoutGrid className="w-3.5 h-3.5" />
               <span>一覧</span>
             </button>
           </div>
-        )}
-      </div>
+
+          {/* 右：古い順 / 新しい順 切替 */}
+          <div className="flex items-center bg-washi border border-washi-border rounded-full p-0.5 shadow-sm shrink-0">
+            <button
+              type="button"
+              onClick={() => setSortOrder('asc')}
+              title="参拝日・拝受順（古い順）"
+              className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold flex items-center gap-1 transition ${
+                sortOrder === 'asc'
+                  ? 'bg-shuiro text-washi shadow-sm'
+                  : 'text-sumi-muted hover:text-sumi'
+              }`}
+            >
+              <ArrowUpDown className="w-3 h-3" />
+              <span>古い順</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortOrder('desc')}
+              title="参拝日・最新順（新しい順）"
+              className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold flex items-center gap-1 transition ${
+                sortOrder === 'desc'
+                  ? 'bg-shuiro text-washi shadow-sm'
+                  : 'text-sumi-muted hover:text-sumi'
+              }`}
+            >
+              <ArrowUpDown className="w-3 h-3" />
+              <span>新しい順</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 御朱印が空のときのウェルカム表示 */}
       {filteredList.length === 0 ? (

@@ -431,10 +431,11 @@ export function parseVisitedDateKey(record) {
 }
 
 /**
- * 登録された御朱印を「もらった順番（参拝日の古い順＝第1頁から時系列順）」に並び替え、
- * 各レコードに第1頁〜第N頁の通し番号（pageNumber）を付与して返す
+ * 登録された御朱印を並び替え、各レコードに第1頁〜第N頁の通し番号（pageNumber）を付与して返す
+ * @param {Array} visitRecords
+ * @param {'asc' | 'desc'} order 'asc': 古い順（拝受順）, 'desc': 新しい順（最新参拝順）
  */
-export function sortVisitsByReceivedOrder(visitRecords = []) {
+export function sortVisitsByReceivedOrder(visitRecords = [], order = 'asc') {
   const chronological = [...visitRecords]
     .filter((r) => r && r.visited)
     .sort((a, b) => {
@@ -449,10 +450,15 @@ export function sortVisitsByReceivedOrder(visitRecords = []) {
       return timeA.localeCompare(timeB);
     });
 
-  return chronological.map((rec, idx) => ({
+  const numbered = chronological.map((rec, idx) => ({
     ...rec,
     pageNumber: idx + 1
   }));
+
+  if (order === 'desc') {
+    return numbered.reverse();
+  }
+  return numbered;
 }
 
 /**
