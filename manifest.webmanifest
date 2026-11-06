@@ -1,0 +1,1 @@
+{"name":"御朱印めぐり - 神社仏閣マップ＆御朱印帳","short_name":"御朱印めぐり","description":"現在地周辺の神社・お寺を探して、自分だけのデジタル御朱印帳を作れる和モダンWebアプリ","start_url":"./","display":"standalone","background_color":"#fcfaf2","theme_color":"#1a1a1a","lang":"en","scope":"./","orientation":"portrait","icons":[{"src":"icon.svg","sizes":"192x192 512x512","type":"image/svg+xml","purpose":"any maskable"}]}
