@@ -35,39 +35,6 @@ export default function App() {
     Boolean(getSavedCouplePasscode())
   );
 
-  // 開いているモーダルのリスト（戻るボタンで順次閉じる用）
-  const activeModals = React.useMemo(() => {
-    const list = [];
-    if (selectedSpot) list.push('spot');
-    if (isBackupModalOpen) list.push('backup');
-    if (isAddPastModalOpen) list.push('past');
-    if (isCoupleModalOpen) list.push('couple');
-    if (isAiModalOpen) list.push('ai');
-    return list;
-  }, [selectedSpot, isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen]);
-
-  const closeTopModal = useCallback(() => {
-    if (isBackupModalOpen) {
-      setIsBackupModalOpen(false);
-    } else if (isAddPastModalOpen) {
-      setIsAddPastModalOpen(false);
-    } else if (isCoupleModalOpen) {
-      setIsCoupleModalOpen(false);
-    } else if (isAiModalOpen) {
-      setIsAiModalOpen(false);
-    } else if (selectedSpot) {
-      setSelectedSpot(null);
-    }
-  }, [isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen, selectedSpot]);
-
-  // Android戻るボタンでホーム画面に戻るのを防ぐガードフック
-  const { exitToastVisible } = useAndroidBackHandler({
-    activeTab,
-    setActiveTab,
-    activeModals,
-    closeTopModal
-  });
-
   // 現在地座標（初期値は兵庫県明石市周辺フォールバック）
   const [userLocation, setUserLocation] = useState({
     lat: DEFAULT_CENTER.lat,
@@ -102,6 +69,39 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState(
     `主要御朱印社寺 ${SEED_SPOTS.length}件＋周辺検索中`
   );
+
+  // 開いているモーダルのリスト（戻るボタンで順次閉じる用）
+  const activeModals = React.useMemo(() => {
+    const list = [];
+    if (selectedSpot) list.push('spot');
+    if (isBackupModalOpen) list.push('backup');
+    if (isAddPastModalOpen) list.push('past');
+    if (isCoupleModalOpen) list.push('couple');
+    if (isAiModalOpen) list.push('ai');
+    return list;
+  }, [selectedSpot, isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen]);
+
+  const closeTopModal = useCallback(() => {
+    if (isBackupModalOpen) {
+      setIsBackupModalOpen(false);
+    } else if (isAddPastModalOpen) {
+      setIsAddPastModalOpen(false);
+    } else if (isCoupleModalOpen) {
+      setIsCoupleModalOpen(false);
+    } else if (isAiModalOpen) {
+      setIsAiModalOpen(false);
+    } else if (selectedSpot) {
+      setSelectedSpot(null);
+    }
+  }, [isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen, selectedSpot]);
+
+  // Android戻るボタンでホーム画面に戻るのを防ぐガードフック
+  const { exitToastVisible } = useAndroidBackHandler({
+    activeTab,
+    setActiveTab,
+    activeModals,
+    closeTopModal
+  });
 
   // 検索半径（km）：5 / 10 / 15 / 20 から選択（前回の選択を記憶）
   const [searchRadiusKm, setSearchRadiusKm] = useState(() => {

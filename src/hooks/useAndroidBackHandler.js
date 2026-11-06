@@ -20,32 +20,44 @@ export function useAndroidBackHandler({
   const lastBackPressRef = useRef(0);
   const exitTimerRef = useRef(null);
 
-  // 履歴スタックにダミー状態を積んで戻る操作をキャッチできるようにする
+  // 最新のステートを常にRefで保持（useEffectの不要な再実行・再登録を防止）
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  const setActiveTabRef = useRef(setActiveTab);
+  setActiveTabRef.current = setActiveTab;
+
+  const activeModalsRef = useRef(activeModals);
+  activeModalsRef.current = activeModals;
+
+  const closeTopModalRef = useRef(closeTopModal);
+  closeTopModalRef.current = closeTopModal;
+
   const pushGuardState = useCallback(() => {
     try {
-      window.history.pushState({ appGuard: true, time: Date.now() }, '', window.location.href);
-    } catch {
-      // 一部環境でのエラー抑制
-    }
+      window.history.pushState({ appGuard: true }, '', window.location.href);
+    } catch {}
   }, []);
 
   useEffect(() => {
-    // 起動時にガード用の履歴ステートを積む
+    // 初回マウント時にガード用履歴ステートを積む
     pushGuardState();
 
-    const handlePopState = (e) => {
+    const handlePopState = () => {
       // 1. 開いているモーダルがあれば一番上のモーダルを閉じる
-      if (activeModals.length > 0) {
-        if (typeof closeTopModal === 'function') {
-          closeTopModal();
+      if (activeModalsRef.current && activeModalsRef.current.length > 0) {
+        if (typeof closeTopModalRef.current === 'function') {
+          closeTopModalRef.current();
         }
         pushGuardState();
         return;
       }
 
       // 2. マップ以外のタブにいる場合はマップタブに戻る
-      if (activeTab !== 'map') {
-        setActiveTab('map');
+      if (activeTabRef.current !== 'map') {
+        if (typeof setActiveTabRef.current === 'function') {
+          setActiveTabRef.current('map');
+        }
         pushGuardState();
         return;
       }
@@ -75,7 +87,7 @@ export function useAndroidBackHandler({
       window.removeEventListener('popstate', handlePopState);
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
     };
-  }, [activeTab, setActiveTab, activeModals, closeTopModal, pushGuardState]);
+  }, [pushGuardState]);
 
   return { exitToastVisible };
 }
