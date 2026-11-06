@@ -95,7 +95,7 @@ export default function PwaInstallButton() {
       {isIosGuideOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 animate-fade-in">
           <div className="w-full max-w-sm bg-washi rounded-3xl border-2 border-kin/50 p-5 shadow-2xl text-sumi space-y-4 animate-slide-up">
-            <div className="flex items-center justify-between border-b border-kin/20 pb-2">
+            <div className="flex items-center justify-between border-b border-kin/20 pb-2.5">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-5 h-5 text-shuiro" />
                 <h3 className="font-serif font-bold text-sm text-sumi">
@@ -105,8 +105,10 @@ export default function PwaInstallButton() {
               <button
                 type="button"
                 onClick={() => setIsIosGuideOpen(false)}
-                className="w-7 h-7 rounded-full bg-sumi-light/10 flex items-center justify-center text-sumi-muted hover:text-sumi"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-sumi-light/10 hover:bg-sumi-light/20 text-sumi text-xs font-serif font-bold transition active:scale-95"
+                title="閉じる"
               >
+                <span>閉じる</span>
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -173,7 +175,7 @@ export default function PwaInstallButton() {
               onClick={() => setIsIosGuideOpen(false)}
               className="w-full py-2.5 rounded-2xl bg-sumi text-washi font-serif font-bold text-xs tracking-wider shadow active:scale-95 transition"
             >
-              閉じる
+              閉じる（前の画面に戻る）
             </button>
           </div>
         </div>

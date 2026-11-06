@@ -6,7 +6,8 @@ import {
   RotateCw,
   Smartphone,
   BookOpen,
-  Calendar
+  Calendar,
+  ChevronLeft
 } from 'lucide-react';
 import { saveVisitRecord, rotateBase64Image90 } from '../db/database.js';
 import GoshuinSampleGraphic from './GoshuinSampleGraphic.jsx';
@@ -117,30 +118,43 @@ export default function GoshuinPhotoLightbox({ record, onClose }) {
       {/* 上部ヘッダーバー */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[430px] mx-auto flex items-center justify-between gap-2 bg-white/10 backdrop-blur-md border border-kin/40 rounded-2xl px-3.5 py-2.5 z-20"
+        className="w-full max-w-[430px] mx-auto flex items-center justify-between gap-2 bg-white/10 backdrop-blur-md border border-kin/40 rounded-2xl px-3 py-2 z-20"
       >
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] font-serif text-kin font-bold">
+        {/* 左: 戻るボタン */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-washi text-xs font-serif font-bold active:scale-95 transition border border-white/25"
+          title="前の画面に戻る"
+        >
+          <ChevronLeft className="w-4 h-4 text-kin" />
+          <span>戻る</span>
+        </button>
+
+        <div className="min-w-0 text-center flex-1">
+          <div className="flex items-center justify-center gap-1.5 text-[10px] font-serif text-kin font-bold">
             <Calendar className="w-3 h-3 text-shuiro shrink-0" />
             <span>{record.visitedDate || '参拝記録'}</span>
             {isWideImage && (
               <span className="px-1.5 py-0.2 rounded bg-shuiro text-washi text-[9px]">
-                📖 見開き御朱印
+                📖 見開き
               </span>
             )}
           </div>
-          <h3 className="font-serif font-black text-base text-washi truncate">
+          <h3 className="font-serif font-black text-xs sm:text-sm text-washi truncate">
             {record.name}
           </h3>
         </div>
 
+        {/* 右: 閉じるボタン */}
         <button
           type="button"
           onClick={onClose}
-          className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-washi border border-white/25 flex items-center justify-center shrink-0 active:scale-95"
-          aria-label="閉じる"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-shuiro/40 hover:bg-shuiro/60 text-washi text-xs font-serif font-bold active:scale-95 transition border border-shuiro/50"
+          title="閉じる"
         >
-          <X className="w-4 h-4" />
+          <span>閉じる</span>
+          <X className="w-4 h-4 text-washi" />
         </button>
       </div>
 

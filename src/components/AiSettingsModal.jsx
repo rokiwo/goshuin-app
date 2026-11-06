@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, KeyRound, Sparkles, Check, ExternalLink, ShieldCheck, Cpu } from 'lucide-react';
+import { X, KeyRound, Sparkles, Check, ExternalLink, ShieldCheck, Cpu, ChevronLeft } from 'lucide-react';
 import {
   AVAILABLE_GEMINI_MODELS,
   DEFAULT_GEMINI_MODEL,
@@ -55,21 +55,43 @@ export default function AiSettingsModal({ isOpen, onClose, onUpdated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-sumi/75 backdrop-blur-sm p-4">
-      <div className="w-full max-w-[400px] washi-pattern rounded-3xl border-2 border-kin shadow-2xl overflow-hidden animate-slide-up">
-        {/* ヘッダー */}
-        <div className="bg-sumi text-washi px-5 py-4 border-b border-kin/40 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-kin" />
-            <h2 className="font-serif font-bold text-base tracking-wide">
-              Gemini 3.8 Flash AI設定
-            </h2>
-          </div>
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-[400px] washi-pattern rounded-3xl border-2 border-kin shadow-2xl overflow-hidden animate-slide-up">
+        {/* スマホ用グラブバー */}
+        <div className="w-full flex justify-center pt-2 pb-1 bg-sumi sm:hidden">
+          <div className="w-12 h-1 rounded-full bg-washi/30" />
+        </div>
+
+        {/* ヘッダー: 左に戻るボタン、右に閉じるボタン */}
+        <div className="bg-sumi text-washi px-3 sm:px-5 py-3 border-b border-kin/40 flex items-center justify-between gap-2">
+          {/* 左: 戻るボタン */}
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-washi/10 text-washi flex items-center justify-center hover:bg-washi/20"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-washi/10 hover:bg-washi/20 text-washi text-xs font-serif font-bold active:scale-95 transition border border-washi/20"
+            title="前の画面に戻る"
           >
-            <X className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4 text-kin" />
+            <span>戻る</span>
+          </button>
+
+          {/* 中央: タイトル */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Sparkles className="w-4 h-4 text-kin shrink-0" />
+            <h2 className="font-serif font-bold text-xs sm:text-sm tracking-wide truncate">
+              Gemini AI設定
+            </h2>
+          </div>
+
+          {/* 右: 閉じるボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-shuiro/30 hover:bg-shuiro/50 text-washi text-xs font-serif font-bold active:scale-95 transition border border-shuiro/50"
+            title="閉じる"
+          >
+            <span>閉じる</span>
+            <X className="w-4 h-4 text-washi" />
           </button>
         </div>
 
@@ -201,6 +223,16 @@ export default function AiSettingsModal({ isOpen, onClose, onUpdated }) {
                 <Sparkles className="w-4 h-4 text-kin" /> 設定を保存してAI機能を有効化
               </>
             )}
+          </button>
+
+          {/* 前の画面に戻るボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-2xl bg-washi-dark/80 hover:bg-washi-dark text-sumi-muted hover:text-sumi font-serif font-bold text-xs border border-washi-border flex items-center justify-center gap-1.5 active:scale-95 transition shadow-sm"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-sumi-muted" />
+            <span>前の画面に戻る</span>
           </button>
         </form>
       </div>

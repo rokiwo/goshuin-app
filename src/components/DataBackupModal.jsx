@@ -10,7 +10,8 @@ import {
   HelpCircle,
   FileCheck,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  ChevronLeft
 } from 'lucide-react';
 import { exportGoshuinBackup, importGoshuinBackup } from '../db/database.js';
 
@@ -99,27 +100,45 @@ export default function DataBackupModal({
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative z-10 w-full max-w-[460px] max-h-[92vh] washi-pattern rounded-t-3xl sm:rounded-3xl border-t-2 sm:border-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
-        {/* ヘッダー */}
-        <div className="bg-sumi text-washi px-5 py-3.5 border-b border-kin/40 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-shuiro border border-kin flex items-center justify-center font-serif font-black text-xs text-washi">
-              保
-            </div>
-            <div>
-              <h3 className="font-serif font-black text-sm text-kin">
-                データ移行 ＆ バックアップ
-              </h3>
-              <p className="text-[10px] text-washi/70">
-                御朱印写真・メモ・御朱印帳の保存と引き継ぎ
-              </p>
-            </div>
-          </div>
+        {/* スマホ用シートグラブハンドル */}
+        <div className="w-full flex justify-center pt-2 pb-1 bg-sumi sm:hidden">
+          <div className="w-12 h-1 rounded-full bg-washi/30" />
+        </div>
+
+        {/* ヘッダー: 左に戻るボタン、右に閉じるボタンを明示 */}
+        <div className="bg-sumi text-washi px-3 sm:px-5 py-3 border-b border-kin/40 flex items-center justify-between shrink-0 gap-2">
+          {/* 左: 戻るボタン */}
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-white/10 text-washi/80 hover:text-washi transition"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-washi/10 hover:bg-washi/20 text-washi text-xs font-serif font-bold active:scale-95 transition border border-washi/20"
+            title="前の画面に戻る"
           >
-            <X className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4 text-kin" />
+            <span>戻る</span>
+          </button>
+
+          {/* 中央: タイトル */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="w-6 h-6 rounded-lg bg-shuiro border border-kin flex items-center justify-center font-serif font-black text-xs text-washi shrink-0">
+              保
+            </div>
+            <div className="min-w-0 text-center sm:text-left">
+              <h3 className="font-serif font-black text-xs sm:text-sm text-kin truncate">
+                データ移行・保存
+              </h3>
+            </div>
+          </div>
+
+          {/* 右: 閉じるボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-shuiro/30 hover:bg-shuiro/50 text-washi text-xs font-serif font-bold active:scale-95 transition border border-shuiro/50"
+            title="閉じる"
+          >
+            <span>閉じる</span>
+            <X className="w-4 h-4 text-washi" />
           </button>
         </div>
 
@@ -290,6 +309,18 @@ export default function DataBackupModal({
               <span>{errorMessage}</span>
             </div>
           )}
+        </div>
+
+        {/* 固定下部バー: どこまでスクロールしても常に親指で押せる「戻る」ボタン */}
+        <div className="bg-sumi text-washi p-3 border-t border-kin/40 shrink-0 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-washi/15 hover:bg-washi/25 text-washi font-serif font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition border border-washi/20 shadow-md"
+          >
+            <ChevronLeft className="w-4 h-4 text-kin" />
+            <span>前の画面に戻る</span>
+          </button>
         </div>
       </div>
     </div>

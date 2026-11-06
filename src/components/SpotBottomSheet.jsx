@@ -22,7 +22,8 @@ import {
   PlusCircle,
   FolderPlus,
   Book,
-  Tag
+  Tag,
+  ChevronLeft
 } from 'lucide-react';
 import GoshuinSampleGraphic from './GoshuinSampleGraphic.jsx';
 import GoshuinPhotoLightbox from './GoshuinPhotoLightbox.jsx';
@@ -445,10 +446,11 @@ export default function SpotBottomSheet({
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-sumi/10 text-sumi flex items-center justify-center hover:bg-sumi/20 transition shrink-0"
-              aria-label="閉じる"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sumi/10 hover:bg-sumi/20 text-sumi text-xs font-serif font-bold transition shrink-0 active:scale-95 border border-sumi/20"
+              title="閉じる"
             >
-              <X className="w-4 h-4" />
+              <span>閉じる</span>
+              <X className="w-4 h-4 text-sumi" />
             </button>
           </div>
         </div>
@@ -1114,6 +1116,16 @@ export default function SpotBottomSheet({
               </button>
             </div>
           </div>
+
+          {/* 前の画面（マップ）に戻るボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-2xl bg-sumi text-washi hover:bg-sumi-light font-serif font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition shadow"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-kin" />
+            <span>前の画面（マップ）に戻る</span>
+          </button>
         </div>
       </div>
 

@@ -7,7 +7,8 @@ import {
   Check,
   Lock,
   ShieldCheck,
-  LogOut
+  LogOut,
+  ChevronLeft
 } from 'lucide-react';
 import {
   getSavedCouplePasscode,
@@ -85,25 +86,41 @@ export default function CoupleSyncModal({ isOpen, onClose, onSyncSuccess }) {
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative z-10 w-full max-w-[400px] washi-pattern rounded-3xl border-2 border-kin shadow-2xl overflow-hidden animate-slide-up">
-        {/* ヘッダー */}
-        <div className="bg-gradient-to-r from-[#b84a62] via-shuiro to-sumi text-washi px-5 py-4 border-b border-kin/40 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Heart className="w-5 h-5 text-pink-200 fill-pink-200" />
-            <div>
-              <h2 className="font-serif font-bold text-base tracking-wide">
-                夫婦で御朱印帳を共有・同期
-              </h2>
-              <p className="text-[10px] text-pink-100">
-                2人だけの合言葉で写真・記録・AI設定を自動共有
-              </p>
-            </div>
-          </div>
+        {/* スマホ用グラブバー */}
+        <div className="w-full flex justify-center pt-2 pb-1 bg-[#b84a62] sm:hidden">
+          <div className="w-12 h-1 rounded-full bg-washi/30" />
+        </div>
+
+        {/* ヘッダー: 左に戻るボタン、右に閉じるボタン */}
+        <div className="bg-gradient-to-r from-[#b84a62] via-shuiro to-sumi text-washi px-3 sm:px-5 py-3 border-b border-kin/40 flex items-center justify-between gap-2">
+          {/* 左: 戻るボタン */}
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-washi/15 text-washi flex items-center justify-center hover:bg-washi/25"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-washi/15 hover:bg-washi/25 text-washi text-xs font-serif font-bold active:scale-95 transition border border-washi/30"
+            title="前の画面に戻る"
           >
-            <X className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4 text-pink-200" />
+            <span>戻る</span>
+          </button>
+
+          {/* 中央: タイトル */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Heart className="w-4 h-4 text-pink-200 fill-pink-200 shrink-0" />
+            <h2 className="font-serif font-bold text-xs sm:text-sm tracking-wide text-washi truncate">
+              夫婦で共有・同期
+            </h2>
+          </div>
+
+          {/* 右: 閉じるボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-black/30 hover:bg-black/50 text-washi text-xs font-serif font-bold active:scale-95 transition border border-washi/30"
+            title="閉じる"
+          >
+            <span>閉じる</span>
+            <X className="w-4 h-4 text-washi" />
           </button>
         </div>
 
@@ -184,6 +201,16 @@ export default function CoupleSyncModal({ isOpen, onClose, onSyncSuccess }) {
               </button>
             </div>
           )}
+
+          {/* 前の画面に戻るボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-2xl bg-washi-dark/80 hover:bg-washi-dark text-sumi-muted hover:text-sumi font-serif font-bold text-xs border border-washi-border flex items-center justify-center gap-1.5 active:scale-95 transition shadow-sm"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-sumi-muted" />
+            <span>前の画面に戻る</span>
+          </button>
         </form>
       </div>
     </div>

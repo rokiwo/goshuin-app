@@ -8,7 +8,8 @@ import {
   RotateCw,
   Trash2,
   Loader2,
-  Sparkles
+  Sparkles,
+  ChevronLeft
 } from 'lucide-react';
 import {
   saveGoshuinBook,
@@ -167,27 +168,43 @@ export default function BookManageModal({
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative z-10 w-full max-w-[430px] max-h-[90vh] washi-pattern rounded-t-3xl sm:rounded-3xl border-t-2 sm:border-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
-        {/* ヘッダー */}
-        <div className="bg-sumi text-washi px-5 py-3.5 border-b border-kin/40 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-shuiro border border-kin flex items-center justify-center font-serif font-black text-xs text-washi">
-              冊
-            </div>
-            <div>
-              <h3 className="font-serif font-black text-sm text-kin">
-                {book ? '実物御朱印帳の編集' : '新しい御朱印帳を登録'}
-              </h3>
-              <p className="text-[10px] text-washi/70">
-                表紙・裏表紙を登録して実際の冊ごとに分ける
-              </p>
-            </div>
-          </div>
+        {/* スマホ用グラブバー */}
+        <div className="w-full flex justify-center pt-2 pb-1 bg-sumi sm:hidden">
+          <div className="w-12 h-1 rounded-full bg-washi/30" />
+        </div>
+
+        {/* ヘッダー: 左に戻るボタン、右に閉じるボタン */}
+        <div className="bg-sumi text-washi px-3 sm:px-5 py-3 border-b border-kin/40 flex items-center justify-between shrink-0 gap-2">
+          {/* 左: 戻るボタン */}
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-white/10 text-washi/80 hover:text-washi transition"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-washi/10 hover:bg-washi/20 text-washi text-xs font-serif font-bold active:scale-95 transition border border-washi/20"
+            title="前の画面に戻る"
           >
-            <X className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4 text-kin" />
+            <span>戻る</span>
+          </button>
+
+          {/* 中央: タイトル */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="w-6 h-6 rounded-lg bg-shuiro border border-kin flex items-center justify-center font-serif font-black text-xs text-washi shrink-0">
+              冊
+            </div>
+            <h3 className="font-serif font-black text-xs sm:text-sm text-kin truncate">
+              {book ? '実物御朱印帳の編集' : '御朱印帳の登録'}
+            </h3>
+          </div>
+
+          {/* 右: 閉じるボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-shuiro/30 hover:bg-shuiro/50 text-washi text-xs font-serif font-bold active:scale-95 transition border border-shuiro/50"
+            title="閉じる"
+          >
+            <span>閉じる</span>
+            <X className="w-4 h-4 text-washi" />
           </button>
         </div>
 
@@ -395,6 +412,16 @@ export default function BookManageModal({
                 <span>この御朱印帳を削除（中の御朱印は未分類に戻ります）</span>
               </button>
             )}
+
+            {/* 前の画面に戻るボタン */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-2.5 rounded-2xl bg-washi-dark/80 hover:bg-washi-dark text-sumi-muted hover:text-sumi font-serif font-bold text-xs border border-washi-border flex items-center justify-center gap-1.5 active:scale-95 transition shadow-sm"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 text-sumi-muted" />
+              <span>前の画面に戻る</span>
+            </button>
           </div>
         </form>
       </div>

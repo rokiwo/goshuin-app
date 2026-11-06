@@ -12,7 +12,8 @@ import {
   Search,
   RotateCw,
   BookOpen,
-  Layers
+  Layers,
+  ChevronLeft
 } from 'lucide-react';
 import {
   db,
@@ -427,27 +428,43 @@ export default function PastGoshuinModal({
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative z-10 w-full max-w-[430px] max-h-[92vh] washi-pattern rounded-t-3xl sm:rounded-3xl border-t-2 sm:border-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
-        {/* ヘッダー */}
-        <div className="bg-sumi text-washi px-5 py-3.5 border-b border-kin/40 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-shuiro border border-kin flex items-center justify-center font-serif font-black text-xs text-washi">
-              追
-            </div>
-            <div>
-              <h2 className="font-serif font-bold text-sm tracking-wide">
-                過去の御朱印を御朱印帳に登録
-              </h2>
-              <p className="text-[10px] text-kin">
-                神社・お寺の名前から全国の住所候補を自動検索できます
-              </p>
-            </div>
-          </div>
+        {/* スマホ用シートグラブハンドル */}
+        <div className="w-full flex justify-center pt-2 pb-1 bg-sumi sm:hidden">
+          <div className="w-12 h-1 rounded-full bg-washi/30" />
+        </div>
+
+        {/* ヘッダー: 左に戻るボタン、右に閉じるボタン */}
+        <div className="bg-sumi text-washi px-3 sm:px-5 py-3 border-b border-kin/40 flex items-center justify-between shrink-0 gap-2">
+          {/* 左: 戻るボタン */}
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-washi/10 text-washi flex items-center justify-center hover:bg-washi/20"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-washi/10 hover:bg-washi/20 text-washi text-xs font-serif font-bold active:scale-95 transition border border-washi/20"
+            title="前の画面に戻る"
           >
-            <X className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4 text-kin" />
+            <span>戻る</span>
+          </button>
+
+          {/* 中央: タイトル */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="w-6 h-6 rounded-lg bg-shuiro border border-kin flex items-center justify-center font-serif font-black text-xs text-washi shrink-0">
+              追
+            </div>
+            <h2 className="font-serif font-bold text-xs sm:text-sm tracking-wide text-washi truncate">
+              御朱印の登録
+            </h2>
+          </div>
+
+          {/* 右: 閉じるボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-shuiro/30 hover:bg-shuiro/50 text-washi text-xs font-serif font-bold active:scale-95 transition border border-shuiro/50"
+            title="閉じる"
+          >
+            <span>閉じる</span>
+            <X className="w-4 h-4 text-washi" />
           </button>
         </div>
 
@@ -844,6 +861,16 @@ export default function PastGoshuinModal({
                 <span>御朱印帳に登録する</span>
               </>
             )}
+          </button>
+
+          {/* キャンセル・戻るボタン */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-2xl bg-washi-dark/80 hover:bg-washi-dark text-sumi-muted hover:text-sumi font-serif font-bold text-xs border border-washi-border flex items-center justify-center gap-1.5 active:scale-95 transition shadow-sm"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-sumi-muted" />
+            <span>キャンセルして前の画面に戻る</span>
           </button>
         </form>
       </div>
