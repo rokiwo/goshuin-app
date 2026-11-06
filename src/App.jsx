@@ -17,6 +17,8 @@ import AiSettingsModal from './components/AiSettingsModal.jsx';
 import PastGoshuinModal from './components/PastGoshuinModal.jsx';
 import CoupleSyncModal from './components/CoupleSyncModal.jsx';
 import DataBackupModal from './components/DataBackupModal.jsx';
+import PwaInstallButton from './components/PwaInstallButton.jsx';
+import { useAndroidBackHandler } from './hooks/useAndroidBackHandler.js';
 
 export default function App() {
   // アクティブタブ: 'map' (探す) | 'concierge' (AI巡拝コース) | 'album' (御朱印帳)
@@ -32,6 +34,39 @@ export default function App() {
   const [isCoupleConnected, setIsCoupleConnected] = useState(() =>
     Boolean(getSavedCouplePasscode())
   );
+
+  // 開いているモーダルのリスト（戻るボタンで順次閉じる用）
+  const activeModals = React.useMemo(() => {
+    const list = [];
+    if (selectedSpot) list.push('spot');
+    if (isBackupModalOpen) list.push('backup');
+    if (isAddPastModalOpen) list.push('past');
+    if (isCoupleModalOpen) list.push('couple');
+    if (isAiModalOpen) list.push('ai');
+    return list;
+  }, [selectedSpot, isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen]);
+
+  const closeTopModal = useCallback(() => {
+    if (isBackupModalOpen) {
+      setIsBackupModalOpen(false);
+    } else if (isAddPastModalOpen) {
+      setIsAddPastModalOpen(false);
+    } else if (isCoupleModalOpen) {
+      setIsCoupleModalOpen(false);
+    } else if (isAiModalOpen) {
+      setIsAiModalOpen(false);
+    } else if (selectedSpot) {
+      setSelectedSpot(null);
+    }
+  }, [isBackupModalOpen, isAddPastModalOpen, isCoupleModalOpen, isAiModalOpen, selectedSpot]);
+
+  // Android戻るボタンでホーム画面に戻るのを防ぐガードフック
+  const { exitToastVisible } = useAndroidBackHandler({
+    activeTab,
+    setActiveTab,
+    activeModals,
+    closeTopModal
+  });
 
   // 現在地座標（初期値は兵庫県明石市周辺フォールバック）
   const [userLocation, setUserLocation] = useState({
@@ -259,6 +294,9 @@ export default function App() {
               <span>移行</span>
             </button>
 
+            {/* PWA アプリ保存（端末へダウンロード・インストール）ボタン */}
+            <PwaInstallButton />
+
             {/* 夫婦共有ボタン */}
             <button
               type="button"
@@ -429,6 +467,14 @@ export default function App() {
             setActiveTab('album');
           }}
         />
+
+        {/* Android戻るボタンガード: もう一度戻ると終了しますトースト */}
+        {exitToastVisible && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-sumi/95 text-washi border border-kin px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-serif animate-bounce pointer-events-none">
+            <span className="w-2 h-2 rounded-full bg-kin animate-ping" />
+            <span>もう一度「戻る」を押すと終了します</span>
+          </div>
+        )}
       </div>
     </div>
   );

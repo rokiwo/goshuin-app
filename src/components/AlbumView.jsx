@@ -155,6 +155,33 @@ export default function AlbumView({
     localStorage.setItem('goshuin_book_viewmode', viewMode);
   }, [viewMode]);
 
+  // モーダルや拡大表示が開いているとき、Android戻るボタンでそれらを閉じる
+  useEffect(() => {
+    const isAnyModalOpen =
+      Boolean(lightboxRecord) ||
+      Boolean(showcaseMode) ||
+      isBookModalOpen ||
+      isAssignModalOpen;
+
+    if (!isAnyModalOpen) return;
+
+    try {
+      window.history.pushState({ albumModalOpen: true }, '', window.location.href);
+    } catch {}
+
+    const handlePop = () => {
+      if (lightboxRecord) setLightboxRecord(null);
+      else if (showcaseMode) setShowcaseMode(null);
+      else if (isAssignModalOpen) setIsAssignModalOpen(false);
+      else if (isBookModalOpen) setIsBookModalOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePop, { once: true });
+    return () => {
+      window.removeEventListener('popstate', handlePop);
+    };
+  }, [lightboxRecord, showcaseMode, isBookModalOpen, isAssignModalOpen]);
+
   const currentTheme =
     COVER_THEMES.find((t) => t.id === themeId) || COVER_THEMES[0];
 
