@@ -49,6 +49,7 @@ export default function AiConciergeView({
   visitMap = {},
   onSelectSpotOnMap,
   onShowPrefectureFavoritesOnMap,
+  onOpenGmapImport,
   onOpenAiSettings
 }) {
   // モード切替: 'favorites'（都道府県別お気に入り＆Gemini 4 Hydrogen最適巡拝ルート） | 'nearby'（現在地周辺モデルコース）
@@ -365,6 +366,16 @@ export default function AiConciergeView({
                   </p>
                 </div>
               </div>
+              {onOpenGmapImport && (
+                <button
+                  type="button"
+                  onClick={onOpenGmapImport}
+                  className="px-2.5 py-1.5 rounded-xl bg-sumi text-kin border border-kin/50 text-[10px] font-serif font-bold shrink-0 active:scale-95 transition whitespace-nowrap"
+                  title="本家Googleマップの共有リンクやURLから追加"
+                >
+                  Gマップ追加
+                </button>
+              )}
             </div>
 
             {/* 神社クイック検索＆お気に入り追加バー */}

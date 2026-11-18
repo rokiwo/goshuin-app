@@ -17,6 +17,7 @@ import AiSettingsModal from './components/AiSettingsModal.jsx';
 import PastGoshuinModal from './components/PastGoshuinModal.jsx';
 import CoupleSyncModal from './components/CoupleSyncModal.jsx';
 import DataBackupModal from './components/DataBackupModal.jsx';
+import GoogleMapsImportModal from './components/GoogleMapsImportModal.jsx';
 import ExitConfirmModal from './components/ExitConfirmModal.jsx';
 import {
   BackHandlerProvider,
@@ -31,6 +32,8 @@ function AppContent({ activeTab, setActiveTab }) {
   const [isAddPastModalOpen, setIsAddPastModalOpen] = useState(false);
   const [isCoupleModalOpen, setIsCoupleModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isGmapImportModalOpen, setIsGmapImportModalOpen] = useState(false);
+  const [gmapImportPayload, setGmapImportPayload] = useState(null);
 
   const [hasApiKey, setHasApiKey] = useState(() => Boolean(getGeminiApiKey()));
   const [isCoupleConnected, setIsCoupleConnected] = useState(() =>
@@ -108,6 +111,13 @@ function AppContent({ activeTab, setActiveTab }) {
     id: 'ai-settings-modal',
     isOpen: isAiModalOpen,
     onBack: () => setIsAiModalOpen(false),
+    priority: 10
+  });
+
+  useBackHandler({
+    id: 'gmap-import-modal',
+    isOpen: isGmapImportModalOpen,
+    onBack: () => setIsGmapImportModalOpen(false),
     priority: 10
   });
 
@@ -238,6 +248,25 @@ function AppContent({ activeTab, setActiveTab }) {
         })
         .catch(() => {});
     }
+
+    // Android等の「Googleマップ → 共有 → 御朱印めぐり（Web Share Target）」から起動された場合の自動取り込み
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const sharedTitle = (params.get('title') || '').trim();
+      const sharedText = (params.get('text') || '').trim();
+      const sharedUrl = (params.get('url') || '').trim();
+      if (sharedTitle || sharedText || sharedUrl) {
+        window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+        setGmapImportPayload({
+          title: sharedTitle,
+          text: sharedText,
+          url: sharedUrl
+        });
+        setIsGmapImportModalOpen(true);
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
   // 指定座標から「指定半径」の神社・寺院をWikipedia Geosearch＋Overpass APIで並列検索
@@ -330,7 +359,7 @@ function AppContent({ activeTab, setActiveTab }) {
     <div className="min-h-screen w-full bg-sumi flex justify-center">
       <div className="w-full max-w-[430px] h-[100dvh] bg-washi flex flex-col shadow-2xl relative overflow-hidden border-x border-kin/20">
         {/* 和モダン上部ヘッダー（2段構成：上段にタイトル・件数、下段に4ボタンでスマホでも絶対に崩れないレイアウト） */}
-        <header className="bg-sumi text-washi px-3 pb-2 safe-top-header border-b border-kin/40 flex flex-col gap-1.5 shrink-0 z-30">
+        <header className="bg-sumi text-washi px-3 pb-1.5 safe-top-header border-b border-kin/40 flex flex-col gap-1 shrink-0 z-30">
           {/* 上段：アプリアイコン＋横1行タイトル＋周辺社寺ステータス */}
           <div className="flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
@@ -427,6 +456,10 @@ function AppContent({ activeTab, setActiveTab }) {
               onRecenterUser={handleRecenterUser}
               searchRadiusKm={searchRadiusKm}
               onChangeRadius={handleChangeRadius}
+              onOpenGmapImport={(initialText) => {
+                setGmapImportPayload(initialText ? { rawText: initialText } : null);
+                setIsGmapImportModalOpen(true);
+              }}
             />
           )}
 
@@ -438,6 +471,10 @@ function AppContent({ activeTab, setActiveTab }) {
               visitMap={visitMap}
               onSelectSpotOnMap={handleSelectSpot}
               onShowPrefectureFavoritesOnMap={handleShowPrefectureFavoritesOnMap}
+              onOpenGmapImport={() => {
+                setGmapImportPayload(null);
+                setIsGmapImportModalOpen(true);
+              }}
               onOpenAiSettings={() => setIsAiModalOpen(true)}
             />
           )}
@@ -553,6 +590,16 @@ function AppContent({ activeTab, setActiveTab }) {
           onImportSuccess={() => {
             setActiveTab('album');
           }}
+        />
+
+        <GoogleMapsImportModal
+          isOpen={isGmapImportModalOpen}
+          onClose={() => setIsGmapImportModalOpen(false)}
+          initialSharePayload={gmapImportPayload}
+          allSpots={mergedSpots}
+          userLocation={userLocation}
+          favoriteMap={favoriteMap}
+          onImportedSpot={handleSelectSpot}
         />
 
         {/* どこからでもアプリを終了しようとした際に表示される確認アナウンス */}
