@@ -17,7 +17,6 @@ import AiSettingsModal from './components/AiSettingsModal.jsx';
 import PastGoshuinModal from './components/PastGoshuinModal.jsx';
 import CoupleSyncModal from './components/CoupleSyncModal.jsx';
 import DataBackupModal from './components/DataBackupModal.jsx';
-import PwaInstallButton from './components/PwaInstallButton.jsx';
 import ExitConfirmModal from './components/ExitConfirmModal.jsx';
 import {
   BackHandlerProvider,
@@ -336,9 +335,6 @@ function AppContent({ activeTab, setActiveTab }) {
               <span>移行</span>
             </button>
 
-            {/* PWA アプリ保存（端末へダウンロード・インストール）ボタン */}
-            <PwaInstallButton />
-
             {/* 夫婦共有ボタン */}
             <button
               type="button"
@@ -432,7 +428,7 @@ function AppContent({ activeTab, setActiveTab }) {
               }`}
             >
               <Compass className="w-4 h-4" />
-              <span>探す・検索</span>
+              <span>探す</span>
             </button>
 
             <button
@@ -445,7 +441,7 @@ function AppContent({ activeTab, setActiveTab }) {
               }`}
             >
               <Sparkles className="w-4 h-4 text-kin" />
-              <span>お気に入り・巡拝</span>
+              <span>AIコース</span>
               {(favoriteRecords || []).length > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-sumi text-[10px] font-sans font-black">
                   {(favoriteRecords || []).length}
