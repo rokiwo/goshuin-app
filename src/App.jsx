@@ -17,6 +17,7 @@ import AiSettingsModal from './components/AiSettingsModal.jsx';
 import PastGoshuinModal from './components/PastGoshuinModal.jsx';
 import CoupleSyncModal from './components/CoupleSyncModal.jsx';
 import DataBackupModal from './components/DataBackupModal.jsx';
+import PwaInstallButton from './components/PwaInstallButton.jsx';
 import ExitConfirmModal from './components/ExitConfirmModal.jsx';
 import {
   BackHandlerProvider,
@@ -296,18 +297,18 @@ function AppContent({ activeTab, setActiveTab }) {
     <div className="min-h-screen w-full bg-sumi flex justify-center">
       <div className="w-full max-w-[430px] h-[100dvh] bg-washi flex flex-col shadow-2xl relative overflow-hidden border-x border-kin/20">
         {/* 和モダン上部ヘッダー */}
-        <header className="bg-sumi text-washi px-3 py-2.5 border-b border-kin/40 flex items-center justify-between shrink-0 z-30">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-shuiro border border-kin flex items-center justify-center shadow-inner shrink-0">
-              <span className="font-serif font-black text-sm text-washi">朱</span>
+        <header className="bg-sumi text-washi px-2.5 py-2 border-b border-kin/40 flex items-center justify-between gap-1.5 shrink-0 z-30">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="w-7 h-7 rounded-xl bg-shuiro border border-kin flex items-center justify-center shadow-inner shrink-0">
+              <span className="font-serif font-black text-xs text-washi">朱</span>
             </div>
             <div className="min-w-0">
-              <h1 className="font-serif font-bold text-sm tracking-wider text-washi flex items-center gap-1">
-                <span>御朱印めぐり</span>
+              <h1 className="font-serif font-bold text-xs sm:text-sm tracking-wide text-washi truncate">
+                御朱印めぐり
               </h1>
-              <p className="text-[10px] text-washi/70 flex items-center gap-1 truncate">
-                <MapPin className="w-3 h-3 text-shuiro shrink-0" />
-                {statusMessage}
+              <p className="text-[9px] text-washi/70 flex items-center gap-0.5 truncate">
+                <MapPin className="w-2.5 h-2.5 text-shuiro shrink-0" />
+                <span className="truncate">{statusMessage}</span>
               </p>
             </div>
           </div>
@@ -317,7 +318,7 @@ function AppContent({ activeTab, setActiveTab }) {
             <button
               type="button"
               onClick={() => setIsAddPastModalOpen(true)}
-              className="px-2 py-1.5 rounded-xl bg-shuiro border border-kin/60 text-washi text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition shadow"
+              className="px-2 py-1.5 rounded-xl bg-shuiro border border-kin/60 text-washi text-[10px] font-serif font-bold flex items-center gap-0.5 active:scale-95 transition shadow"
               title="過去の御朱印を写真・日付・場所で登録"
             >
               <PlusCircle className="w-3 h-3 text-kin" />
@@ -328,18 +329,21 @@ function AppContent({ activeTab, setActiveTab }) {
             <button
               type="button"
               onClick={() => setIsBackupModalOpen(true)}
-              className="px-2 py-1.5 rounded-xl border border-kin/45 bg-sumi-light text-kin text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition shadow"
+              className="px-2 py-1.5 rounded-xl border border-kin/45 bg-sumi-light text-kin text-[10px] font-serif font-bold flex items-center gap-0.5 active:scale-95 transition shadow"
               title="データ移行・バックアップの書き出し＆復元"
             >
               <HardDrive className="w-3 h-3 text-kin" />
               <span>移行</span>
             </button>
 
+            {/* PWA アプリダウンロード（インストール）ボタン */}
+            <PwaInstallButton compact />
+
             {/* 夫婦共有ボタン */}
             <button
               type="button"
               onClick={() => setIsCoupleModalOpen(true)}
-              className={`px-2 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition ${
+              className={`px-2 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-0.5 active:scale-95 transition ${
                 isCoupleConnected
                   ? 'bg-[#b84a62] border-pink-200 text-white shadow'
                   : 'bg-sumi-light border-pink-300/40 text-pink-200'
@@ -347,14 +351,14 @@ function AppContent({ activeTab, setActiveTab }) {
               title="夫婦の合言葉で共有・同期"
             >
               <Heart className={`w-3 h-3 ${isCoupleConnected ? 'fill-pink-200 text-pink-200' : ''}`} />
-              <span>{isCoupleConnected ? '夫婦共有中' : '夫婦共有'}</span>
+              <span>{isCoupleConnected ? '共有中' : '共有'}</span>
             </button>
 
             {/* AI設定ボタン */}
             <button
               type="button"
               onClick={() => setIsAiModalOpen(true)}
-              className={`px-2 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition ${
+              className={`px-2 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-0.5 active:scale-95 transition ${
                 hasApiKey
                   ? 'bg-kin/15 border-kin text-kin'
                   : 'bg-sumi-light border-washi/30 text-washi/80'

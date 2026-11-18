@@ -5,6 +5,10 @@ function isValidCouplePasscode(rawCode) {
   if (!rawCode || typeof rawCode !== 'string') return false;
   const cleaned = rawCode.trim().replace(/[年月\/\-]/g, '.').replace(/日/g, '');
   const validCodes = new Set([
+    '0731',
+    '731',
+    '07.31',
+    '7.31',
     '2026.7.31',
     '2026.07.31',
     '2026731',
