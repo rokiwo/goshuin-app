@@ -19,7 +19,11 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { searchShrineCandidatesByName } from '../services/shrineSearchService.js';
-import { toggleFavoriteSpot, extractPrefectureFromSpot } from '../db/database.js';
+import {
+  toggleFavoriteSpot,
+  extractPrefectureFromSpot,
+  groupFavoritesByPrefecture
+} from '../db/database.js';
 
 // 地図タイルレイヤー定義（デフォルト：見やすいGoogleマップ日本語標準地図）
 const MAP_TILE_STYLES = {
@@ -132,9 +136,9 @@ const userLocationIcon = L.divIcon({
 });
 
 /**
- * 地図の中心座標をスムーズに移動させる内部コントローラー＋ドラッグ検知
+ * 地図の中心座標をスムーズに移動させる内部コントローラー＋ドラッグ検知＋県別フィット
  */
-function MapController({ targetCoord, onMapMoved }) {
+function MapController({ targetCoord, boundsTarget, onMapMoved }) {
   const map = useMap();
   useEffect(() => {
     if (targetCoord && typeof targetCoord.lat === 'number' && typeof targetCoord.lng === 'number') {
@@ -143,6 +147,33 @@ function MapController({ targetCoord, onMapMoved }) {
       });
     }
   }, [targetCoord, map]);
+
+  useEffect(() => {
+    if (!boundsTarget || !Array.isArray(boundsTarget.coords) || boundsTarget.coords.length === 0) {
+      return;
+    }
+    const valid = boundsTarget.coords.filter(
+      (c) =>
+        typeof c.lat === 'number' &&
+        typeof c.lng === 'number' &&
+        !Number.isNaN(c.lat) &&
+        !Number.isNaN(c.lng)
+    );
+    if (valid.length === 0) return;
+
+    if (valid.length === 1) {
+      map.flyTo([valid[0].lat, valid[0].lng], 14, { duration: 0.7 });
+      return;
+    }
+
+    const bounds = L.latLngBounds(valid.map((c) => [c.lat, c.lng]));
+    map.fitBounds(bounds, {
+      paddingTopLeft: [36, 100],
+      paddingBottomRight: [36, 175],
+      maxZoom: 14,
+      animate: true
+    });
+  }, [boundsTarget, map]);
 
   useMapEvents({
     moveend: () => {
@@ -167,6 +198,9 @@ export default function MapView({
   onFlyToSpot,
   filterType,
   onFilterChange,
+  selectedFavPrefecture = 'ALL',
+  onChangeFavPrefecture,
+  favFitTrigger = 0,
   isLoading,
   onRefreshNearby,
   onSearchMapCenter,
@@ -179,6 +213,14 @@ export default function MapView({
   const [tileStyleKey, setTileStyleKey] = useState('google_road');
   const [mapCenter, setMapCenter] = useState(null);
   const [showSearchHereBtn, setShowSearchHereBtn] = useState(false);
+
+  // ★県別お気に入り表示時の自動フィット＆ローカルフォールバックステート
+  const [internalFavPref, setInternalFavPref] = useState('ALL');
+  const activeFavPref = onChangeFavPrefecture ? selectedFavPrefecture : internalFavPref;
+  const setActiveFavPref = onChangeFavPrefecture || setInternalFavPref;
+  const [boundsTarget, setBoundsTarget] = useState(null);
+  const [manualFavFitCount, setManualFavFitCount] = useState(0);
+  const lastFavFitSigRef = useRef('');
 
   // ★Googleマップ上の全国神社・お寺キーワード検索＆お気に入り登録ステート
   const [searchQuery, setSearchQuery] = useState('');
@@ -316,19 +358,115 @@ export default function MapView({
     return [...extras, ...spots];
   }, [spots, pinnedSearchSpots]);
 
-  const favoriteCountOnMap = React.useMemo(
-    () => allMapSpots.filter((s) => Boolean(favoriteMap[s.id])).length,
-    [allMapSpots, favoriteMap]
+  // お気に入り社寺の都道府県を解決（ユーザー手動変更やDB保存済みの県名を最優先）
+  const resolveSpotPrefecture = React.useCallback(
+    (spot) =>
+      favoriteMap[spot.id]?.prefecture || spot.prefecture || extractPrefectureFromSpot(spot),
+    [favoriteMap]
   );
 
+  const favoriteSpotsAll = React.useMemo(
+    () =>
+      allMapSpots
+        .filter((s) => Boolean(favoriteMap[s.id]))
+        .map((s) => ({ ...s, prefecture: resolveSpotPrefecture(s) })),
+    [allMapSpots, favoriteMap, resolveSpotPrefecture]
+  );
+
+  const favoriteCountOnMap = favoriteSpotsAll.length;
+
+  const favoritePrefGroups = React.useMemo(
+    () => groupFavoritesByPrefecture(favoriteSpotsAll),
+    [favoriteSpotsAll]
+  );
+
+  // お気に入り表示中のデフォルト都道府県（現在地/地図中心の県があれば優先、なければ最初の県）
+  const pickDefaultFavPrefecture = React.useCallback(() => {
+    if (favoritePrefGroups.length === 0) return 'ALL';
+    const centerCoord = mapCenter || searchCenter || userLocation;
+    const localPref = centerCoord ? extractPrefectureFromSpot(centerCoord) : '';
+    if (localPref && favoritePrefGroups.some((g) => g.prefecture === localPref)) {
+      return localPref;
+    }
+    return favoritePrefGroups[0].prefecture;
+  }, [favoritePrefGroups, mapCenter, searchCenter, userLocation]);
+
+  // もし選択中の県のお気に入りがすべて解除された場合、利用可能な県に自動フォールバック
+  useEffect(() => {
+    if (filterType !== 'favorite') return;
+    if (favoritePrefGroups.length === 0) {
+      if (activeFavPref !== 'ALL') setActiveFavPref('ALL');
+      return;
+    }
+    if (
+      activeFavPref !== 'ALL' &&
+      !favoritePrefGroups.some((g) => g.prefecture === activeFavPref)
+    ) {
+      setActiveFavPref(favoritePrefGroups[0].prefecture);
+    }
+  }, [filterType, favoritePrefGroups, activeFavPref, setActiveFavPref]);
+
+  // 「お気に入り」フィルタを有効化（自動的に「その1県だけ」に絞り、絞込パネルを閉じてマップを見やすくする）
+  const handleActivateFavoriteFilter = () => {
+    const hasValidPref =
+      activeFavPref &&
+      activeFavPref !== 'ALL' &&
+      favoritePrefGroups.some((g) => g.prefecture === activeFavPref);
+    const nextPref = hasValidPref ? activeFavPref : pickDefaultFavPrefecture();
+    setActiveFavPref(nextPref);
+    onFilterChange('favorite');
+    setIsToolsExpanded(false);
+    setManualFavFitCount((c) => c + 1);
+  };
+
+  const handleSelectFavPrefecture = (pref) => {
+    setActiveFavPref(pref);
+    setManualFavFitCount((c) => c + 1);
+  };
+
   // フィルタ適用後のスポット一覧
-  const filteredSpots = allMapSpots.filter((spot) => {
-    if (filterType === 'shrine') return spot.type === 'shrine';
-    if (filterType === 'temple') return spot.type === 'temple';
-    if (filterType === 'favorite') return Boolean(favoriteMap[spot.id]);
-    if (filterType === 'visited') return Boolean(visitMap[spot.id]?.visited);
-    return true;
-  });
+  const filteredSpots = React.useMemo(
+    () =>
+      allMapSpots.filter((spot) => {
+        if (filterType === 'shrine') return spot.type === 'shrine';
+        if (filterType === 'temple') return spot.type === 'temple';
+        if (filterType === 'favorite') {
+          if (!favoriteMap[spot.id]) return false;
+          if (activeFavPref && activeFavPref !== 'ALL') {
+            return resolveSpotPrefecture(spot) === activeFavPref;
+          }
+          return true;
+        }
+        if (filterType === 'visited') return Boolean(visitMap[spot.id]?.visited);
+        return true;
+      }),
+    [allMapSpots, filterType, favoriteMap, activeFavPref, resolveSpotPrefecture, visitMap]
+  );
+
+  // お気に入り表示や選択県の切替時、該当県のピン全体が収まる位置へ自動ズーム
+  useEffect(() => {
+    if (filterType !== 'favorite') {
+      lastFavFitSigRef.current = '';
+      return;
+    }
+    const coords = filteredSpots.filter(
+      (s) =>
+        typeof s.lat === 'number' &&
+        typeof s.lng === 'number' &&
+        !Number.isNaN(s.lat) &&
+        !Number.isNaN(s.lng)
+    );
+    if (coords.length === 0) return;
+
+    const sig = `${activeFavPref}:${favFitTrigger}:${manualFavFitCount}`;
+    if (lastFavFitSigRef.current === sig) return;
+    lastFavFitSigRef.current = sig;
+
+    setBoundsTarget({
+      key: `${sig}:${Date.now()}`,
+      coords: coords.map((s) => ({ lat: s.lat, lng: s.lng }))
+    });
+  }, [filterType, activeFavPref, favFitTrigger, manualFavFitCount, filteredSpots]);
 
   const activeCircleCenter = searchCenter || userLocation;
 
@@ -555,6 +693,70 @@ export default function MapView({
           )}
         </div>
 
+        {/* ★「お気に入り」表示中に出る県別ワンタップ切替バー（普段は隠れ、必要な県だけを見やすく表示） */}
+        {filterType === 'favorite' && (
+          <div className="pointer-events-auto flex items-center gap-1.5 bg-sumi/92 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-amber-400/70 shadow-lg overflow-x-auto no-scrollbar animate-slide-up">
+            <span className="inline-flex items-center gap-1 text-[10px] font-serif font-bold text-amber-300 whitespace-nowrap shrink-0">
+              <Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
+              <span>県別:</span>
+            </span>
+            {favoritePrefGroups.length === 0 ? (
+              <span className="text-[10px] text-washi/80 whitespace-nowrap">
+                お気に入りが未登録です（★で追加）
+              </span>
+            ) : (
+              <>
+                {favoritePrefGroups.map((grp) => {
+                  const isSelected = activeFavPref === grp.prefecture;
+                  return (
+                    <button
+                      key={grp.prefecture}
+                      type="button"
+                      onClick={() => handleSelectFavPrefecture(grp.prefecture)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-1 transition active:scale-95 ${
+                        isSelected
+                          ? 'bg-amber-500 text-white shadow'
+                          : 'bg-white/10 text-washi/85 hover:bg-white/20'
+                      }`}
+                    >
+                      <span>{grp.prefecture}</span>
+                      <span
+                        className={`px-1.5 rounded-full text-[10px] font-sans font-black ${
+                          isSelected ? 'bg-sumi/25 text-white' : 'bg-white/15 text-amber-200'
+                        }`}
+                      >
+                        {grp.count}
+                      </span>
+                    </button>
+                  );
+                })}
+                {favoritePrefGroups.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectFavPrefecture('ALL')}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold whitespace-nowrap shrink-0 transition active:scale-95 ${
+                      activeFavPref === 'ALL'
+                        ? 'bg-kin text-sumi shadow'
+                        : 'bg-white/10 text-washi/75 hover:bg-white/20'
+                    }`}
+                  >
+                    全国({favoriteCountOnMap})
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => onFilterChange('all')}
+              className="ml-auto px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 text-washi/85 text-[10px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-0.5 active:scale-95 transition"
+              title="お気に入り絞込を解除して全社寺表示に戻す"
+            >
+              <X className="w-3 h-3" />
+              <span>解除</span>
+            </button>
+          </div>
+        )}
+
         {/* ★「絞込」ボタンを押したときだけ開くコンパクト設定ドロワー（普段は隠してマップを広く表示） */}
         {isToolsExpanded && (
           <div className="pointer-events-auto rounded-2xl bg-sumi/95 backdrop-blur-md p-2.5 border border-kin/50 shadow-2xl space-y-2 animate-slide-up">
@@ -573,7 +775,7 @@ export default function MapView({
               </button>
               <button
                 type="button"
-                onClick={() => onFilterChange('favorite')}
+                onClick={handleActivateFavoriteFilter}
                 className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                   filterType === 'favorite'
                     ? 'bg-amber-500 text-white font-bold shadow-sm'
@@ -658,7 +860,7 @@ export default function MapView({
         )}
 
         {/* 地図をスクロールした際に表示される「このエリアで寺社を検索」ボタン */}
-        {showSearchHereBtn && !isLoading && !isGoogleEmbedMode && (
+        {showSearchHereBtn && !isLoading && !isGoogleEmbedMode && filterType !== 'favorite' && (
           <button
             type="button"
             onClick={handleSearchThisArea}
@@ -679,7 +881,11 @@ export default function MapView({
       </div>
 
       {/* 右端フローティングのミニ操作ボタン（現在地・再読込・下部カードの収納/表示） */}
-      <div className="absolute right-2.5 top-16 z-20 flex flex-col gap-1.5 pointer-events-auto">
+      <div
+        className={`absolute right-2.5 z-20 flex flex-col gap-1.5 pointer-events-auto transition-all ${
+          filterType === 'favorite' ? 'top-24' : 'top-16'
+        }`}
+      >
         <button
           type="button"
           onClick={onRecenterUser}
@@ -702,13 +908,19 @@ export default function MapView({
       {/* Google マップ タイル統合マップ本体 または 本家Googleマップ埋め込み画面 */}
       <div className="flex-1 w-full h-full">
         {isGoogleEmbedMode ? (
-          <div className="w-full h-full pt-14 pb-2 px-1.5 bg-sumi/95 flex flex-col">
+          <div
+            className={`w-full h-full pb-2 px-1.5 bg-sumi/95 flex flex-col ${
+              filterType === 'favorite' ? 'pt-24' : 'pt-14'
+            }`}
+          >
             <div className="flex-1 w-full rounded-2xl overflow-hidden border-2 border-kin shadow-2xl bg-washi relative">
               <iframe
                 title="本家Googleマップ検索"
                 src={`https://maps.google.com/maps?q=${encodeURIComponent(
                   searchQuery.trim()
                     ? searchQuery.trim()
+                    : filterType === 'favorite' && activeFavPref && activeFavPref !== 'ALL'
+                    ? `${activeFavPref} 神社 寺院`
                     : `${(mapCenter || searchCenter || userLocation).lat},${
                         (mapCenter || searchCenter || userLocation).lng
                       } 神社 寺院`
@@ -733,20 +945,26 @@ export default function MapView({
               maxZoom={20}
             />
 
-            <MapController targetCoord={flyTarget} onMapMoved={handleMapMoved} />
-
-            {/* 検索範囲サークル */}
-            <Circle
-              center={[activeCircleCenter.lat, activeCircleCenter.lng]}
-              radius={searchRadiusKm * 1000}
-              pathOptions={{
-                color: '#c93a40',
-                weight: 1.5,
-                dashArray: '6 6',
-                fillColor: '#c5a059',
-                fillOpacity: 0.03
-              }}
+            <MapController
+              targetCoord={flyTarget}
+              boundsTarget={boundsTarget}
+              onMapMoved={handleMapMoved}
             />
+
+            {/* 検索範囲サークル（お気に入り県別表示時は非表示にして見やすくする） */}
+            {filterType !== 'favorite' && (
+              <Circle
+                center={[activeCircleCenter.lat, activeCircleCenter.lng]}
+                radius={searchRadiusKm * 1000}
+                pathOptions={{
+                  color: '#c93a40',
+                  weight: 1.5,
+                  dashArray: '6 6',
+                  fillColor: '#c5a059',
+                  fillOpacity: 0.03
+                }}
+              />
+            )}
 
             {/* 現在地ピン */}
             <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon} />
@@ -783,7 +1001,11 @@ export default function MapView({
             {isBottomCardsMinimized ? (
               <>
                 <ChevronUp className="w-3 h-3" />
-                <span>周辺社寺カードを表示 ({filteredSpots.length}件)</span>
+                <span>
+                  {filterType === 'favorite'
+                    ? `${activeFavPref === 'ALL' ? '全国' : activeFavPref}のお気に入りを表示 (${filteredSpots.length}件)`
+                    : `周辺社寺カードを表示 (${filteredSpots.length}件)`}
+                </span>
               </>
             ) : (
               <>

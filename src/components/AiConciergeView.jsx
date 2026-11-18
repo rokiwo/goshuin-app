@@ -48,6 +48,7 @@ export default function AiConciergeView({
   favorites = [],
   visitMap = {},
   onSelectSpotOnMap,
+  onShowPrefectureFavoritesOnMap,
   onOpenAiSettings
 }) {
   // モード切替: 'favorites'（都道府県別お気に入り＆Gemini 4 Hydrogen最適巡拝ルート） | 'nearby'（現在地周辺モデルコース）
@@ -511,28 +512,43 @@ export default function AiConciergeView({
 
                 {/* 選択した都道府県のお気に入り神社リスト */}
                 <div className="rounded-xl bg-washi-dark/70 border border-kin/40 p-2.5 space-y-2">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-serif font-bold text-sumi flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-shuiro" />
-                      {selectedPrefecture}のお気に入り（{currentPrefFavorites.length}社寺）
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="font-serif font-bold text-sumi flex items-center gap-1 min-w-0 truncate">
+                      <MapPin className="w-3.5 h-3.5 text-shuiro shrink-0" />
+                      <span className="truncate">
+                        {selectedPrefecture}のお気に入り（{currentPrefFavorites.length}社寺）
+                      </span>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (checkedSpotIds.size === currentPrefFavorites.length) {
-                          setCheckedSpotIds(new Set());
-                        } else {
-                          setCheckedSpotIds(
-                            new Set(currentPrefFavorites.map((f) => f.spotId))
-                          );
-                        }
-                      }}
-                      className="text-[10px] font-serif font-bold text-shuiro hover:underline"
-                    >
-                      {checkedSpotIds.size === currentPrefFavorites.length
-                        ? 'すべて選択解除'
-                        : 'すべて選択'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {onShowPrefectureFavoritesOnMap && currentPrefFavorites.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => onShowPrefectureFavoritesOnMap(selectedPrefecture)}
+                          className="px-2 py-0.5 rounded-lg bg-sumi text-kin border border-kin/50 text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition whitespace-nowrap"
+                          title="この県のお気に入りだけをマップに表示"
+                        >
+                          <MapPin className="w-2.5 h-2.5" />
+                          <span>地図で見る</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (checkedSpotIds.size === currentPrefFavorites.length) {
+                            setCheckedSpotIds(new Set());
+                          } else {
+                            setCheckedSpotIds(
+                              new Set(currentPrefFavorites.map((f) => f.spotId))
+                            );
+                          }
+                        }}
+                        className="text-[10px] font-serif font-bold text-shuiro hover:underline whitespace-nowrap"
+                      >
+                        {checkedSpotIds.size === currentPrefFavorites.length
+                          ? 'すべて選択解除'
+                          : 'すべて選択'}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">

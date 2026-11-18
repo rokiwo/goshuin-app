@@ -66,6 +66,8 @@ function AppContent({ activeTab, setActiveTab }) {
   );
 
   const [filterType, setFilterType] = useState('all');
+  const [selectedFavPrefecture, setSelectedFavPrefecture] = useState('ALL');
+  const [favFitTrigger, setFavFitTrigger] = useState(0);
   const [selectedSpot, setSelectedSpot] = useState(null);
   const [isLoadingOverpass, setIsLoadingOverpass] = useState(false);
   const [statusMessage, setStatusMessage] = useState(
@@ -304,6 +306,16 @@ function AppContent({ activeTab, setActiveTab }) {
     });
   };
 
+  // AIコース等から「指定県のお気に入りのみマップ表示」へジャンプ
+  const handleShowPrefectureFavoritesOnMap = (prefecture) => {
+    setSelectedSpot(null);
+    setFlyTarget(null);
+    setSelectedFavPrefecture(prefecture || 'ALL');
+    setFilterType('favorite');
+    setFavFitTrigger((n) => n + 1);
+    setActiveTab('map');
+  };
+
   // 現在地へ戻るボタン
   const handleRecenterUser = () => {
     setFlyTarget({
@@ -405,6 +417,9 @@ function AppContent({ activeTab, setActiveTab }) {
               onFlyToSpot={handleSelectSpot}
               filterType={filterType}
               onFilterChange={setFilterType}
+              selectedFavPrefecture={selectedFavPrefecture}
+              onChangeFavPrefecture={setSelectedFavPrefecture}
+              favFitTrigger={favFitTrigger}
               isLoading={isLoadingOverpass}
               onRefreshNearby={() => loadNearbySpots(searchCenter.lat, searchCenter.lng)}
               onSearchMapCenter={(lat, lng) => loadNearbySpots(lat, lng)}
@@ -422,6 +437,7 @@ function AppContent({ activeTab, setActiveTab }) {
               favorites={favoriteRecords || []}
               visitMap={visitMap}
               onSelectSpotOnMap={handleSelectSpot}
+              onShowPrefectureFavoritesOnMap={handleShowPrefectureFavoritesOnMap}
               onOpenAiSettings={() => setIsAiModalOpen(true)}
             />
           )}
