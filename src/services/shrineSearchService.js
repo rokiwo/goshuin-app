@@ -550,12 +550,12 @@ async function searchViaNominatimApi(cleanName, cleanArea = '', baseLat, baseLng
 }
 
 /**
- * 万が一地図DB（GSI/OSM/Wikipedia）で1件もヒットしなかった場合の Gemini AI フォールバック検索
- * （通称・マイナー社寺・最新の表記でもGeminiの知識から正確な所在地と座標を特定）
+ * Gemini + Google検索・Googleマップ連携による高精度・有名社寺＆全国社寺検索
+ * ★「0件のときだけ」ではなく毎回並列で実行し、通称・略称・有名神社（例：「大神神社」「おちょぼさん」「氷川神社」等）をGoogleマップ基準で確実にヒットさせます
  */
-async function searchViaGeminiFallback(cleanName, cleanArea = '') {
+async function searchViaGeminiGoogleMaps(cleanName, cleanArea = '') {
   const apiKey = getGeminiApiKey();
-  if (!apiKey) return [];
+  if (!apiKey || cleanName.length < 2) return [];
 
   try {
     const modelId = getGeminiModel() || 'gemini-4-hydrogen';
@@ -564,7 +564,9 @@ async function searchViaGeminiFallback(cleanName, cleanArea = '') {
     )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     const prompt = `
-日本国内にある「${cleanName}」${cleanArea ? `（地域ヒント: ${cleanArea}）` : ''}に該当する実在の神社・寺院の候補を最大5件挙げ、それぞれの正式名称・種別（shrineまたはtemple）・都道府県・詳しい住所・おおよその緯度（lat）と経度（lng）をJSON配列で返してください。
+あなたは日本のGoogleマップ・神社仏閣データベースの検索エンジンです。
+ユーザーが検索したキーワード「${cleanName}」${cleanArea ? `（地域指定: ${cleanArea}）` : ''}に一致・関連する日本国内の実在する神社・寺院を、Googleマップで検索したときに上位に出る有名なものから順に最大8件挙げてください。
+※通称・別名・読み仮名・略称（例：「三輪明神/おおみわ」→大神神社、「お伊勢さん」→伊勢神宮、「えべっさん」→西宮神社/今宮戎神社など）もすべて正式名称と正確な所在地・緯度経度（lat, lng）に変換してJSON配列で返してください。
 `;
 
     const schema = {
@@ -572,12 +574,21 @@ async function searchViaGeminiFallback(cleanName, cleanArea = '') {
       items: {
         type: 'OBJECT',
         properties: {
-          name: { type: 'STRING' },
+          name: {
+            type: 'STRING',
+            description: 'Googleマップ上の正式な神社・寺院名'
+          },
           type: { type: 'STRING', enum: ['shrine', 'temple'] },
-          prefecture: { type: 'STRING' },
-          address: { type: 'STRING' },
-          lat: { type: 'NUMBER' },
-          lng: { type: 'NUMBER' }
+          prefecture: {
+            type: 'STRING',
+            description: '都道府県名（例：奈良県、京都府、兵庫県など）'
+          },
+          address: {
+            type: 'STRING',
+            description: '都道府県から始まる詳しい住所'
+          },
+          lat: { type: 'NUMBER', description: '正確な緯度（北緯）' },
+          lng: { type: 'NUMBER', description: '正確な経度（東経）' }
         },
         required: ['name', 'type', 'prefecture', 'address', 'lat', 'lng']
       }
@@ -605,19 +616,19 @@ async function searchViaGeminiFallback(cleanName, cleanArea = '') {
     return parsed
       .filter((p) => p && typeof p.lat === 'number' && typeof p.lng === 'number')
       .map((p, i) => ({
-        id: `ai-spot-${Date.now()}-${i}`,
+        id: `gmap-ai-${p.lat.toFixed(4)}-${p.lng.toFixed(4)}-${i}`,
         name: p.name,
         type: p.type || inferSpotTypeFromName(p.name),
-        prefecture:
-          ALL_PREFECTURES.includes(p.prefecture)
-            ? p.prefecture
-            : extractPrefectureFromSpot(p),
+        prefecture: ALL_PREFECTURES.includes(p.prefecture)
+          ? p.prefecture
+          : extractPrefectureFromSpot(p),
         address: p.address || p.prefecture,
         lat: p.lat,
         lng: p.lng,
-        denomination: p.type === 'temple' ? '仏教（寺院）' : '神道（神社）',
+        denomination: p.type === 'temple' ? '仏教（有名寺院）' : '神道（有名神社）',
         sampleGoshuin: buildDefaultSampleGoshuin(p.name, p.type),
-        source: 'AI神社特定'
+        isFamousMatch: true,
+        source: 'GoogleマップAI検索'
       }));
   } catch {
     return [];
@@ -750,28 +761,37 @@ export async function searchShrineCandidatesByName(
     }
   }
 
-  // 2. 国土地理院（GSI）＋ OpenStreetMap Nominatim ＋ Wikipedia日本語版 を並列実行
-  const [gsiList, nomList, wikiList] = await Promise.all([
+  // 2. 国土地理院（GSI）＋ OpenStreetMap Nominatim ＋ Wikipedia日本語版 ＋ Gemini Googleマップ検索 を常に並列実行
+  const [gsiList, nomList, wikiList, aiGmapList] = await Promise.all([
     searchViaGsiApi(cleanName, cleanArea),
     searchViaNominatimApi(cleanName, cleanArea, baseLat, baseLng),
-    searchViaWikipediaApi(cleanName, cleanArea)
+    searchViaWikipediaApi(cleanName, cleanArea),
+    searchViaGeminiGoogleMaps(cleanName, cleanArea)
   ]);
 
-  // 住所情報が豊富なNominatim・Wikipedia・国土地理院の順にマージ
-  for (const item of [...nomList, ...wikiList, ...gsiList]) {
+  // 有名社寺・GoogleマップAI検索・Wikipedia・Nominatim・国土地理院の順にマージ
+  for (const item of [...aiGmapList, ...wikiList, ...nomList, ...gsiList]) {
     pushCandidate(item);
   }
 
-  // 3. 万が一ここまでで0件だった場合、Gemini AIフォールバックで実在社寺を検索
-  if (rawCandidates.length === 0 && cleanName.length >= 2) {
-    const aiList = await searchViaGeminiFallback(cleanName, cleanArea);
-    for (const item of aiList) {
-      pushCandidate(item);
+  // 3. ★ソート基準：
+  // 単なる距離順だけだと、遠方の総本社・有名神社（例：伊勢神宮・出雲大社・厳島神社・大神神社など）が近所の無名祠の下に埋もれてしまうため、
+  // 「名前完全一致 または Wikipedia/Googleマップ有名社寺」を優先しつつ、現在地から近い順にソート
+  rawCandidates.sort((a, b) => {
+    const exactA = normalizeShrineText(a.name) === normQuery ? 1 : 0;
+    const exactB = normalizeShrineText(b.name) === normQuery ? 1 : 0;
+    const famousA = a.isFamousMatch || a.source === 'Wikipedia社寺検索' ? 1 : 0;
+    const famousB = b.isFamousMatch || b.source === 'Wikipedia社寺検索' ? 1 : 0;
+
+    const scoreA = exactA * 2 + famousA;
+    const scoreB = exactB * 2 + famousB;
+
+    // どちらも現在地から50km以上離れている場合は有名度・完全一致スコアが高い方を優先
+    if (a.distanceMeters > 50000 && b.distanceMeters > 50000 && scoreA !== scoreB) {
+      return scoreB - scoreA;
     }
-  }
+    return a.distanceMeters - b.distanceMeters;
+  });
 
-  // 4. ★現在地から近い順（昇順）に並び替えて返却
-  rawCandidates.sort((a, b) => a.distanceMeters - b.distanceMeters);
-
-  return rawCandidates.slice(0, 35);
+  return rawCandidates.slice(0, 60);
 }

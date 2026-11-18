@@ -184,6 +184,9 @@ export default function MapView({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [pinnedSearchSpots, setPinnedSearchSpots] = useState([]);
 
+  // ★本家Googleマップ埋め込みモード（Googleマップに表示される全神社・寺院・口コミ・写真をそのままアプリ内で閲覧可能）
+  const [isGoogleEmbedMode, setIsGoogleEmbedMode] = useState(false);
+
   const currentTile = MAP_TILE_STYLES[tileStyleKey] || MAP_TILE_STYLES.google_road;
 
   const cycleTileStyle = () => {
@@ -357,6 +360,19 @@ export default function MapView({
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
+            {/* 本家Googleマップモード切替トグル */}
+            <button
+              type="button"
+              onClick={() => setIsGoogleEmbedMode((prev) => !prev)}
+              className={`px-2 py-1 rounded-xl text-[10px] font-serif font-bold border transition shrink-0 whitespace-nowrap ${
+                isGoogleEmbedMode
+                  ? 'bg-shuiro text-washi border-shuiro shadow-sm'
+                  : 'bg-sumi text-kin border-kin/50 hover:bg-sumi-light'
+              }`}
+              title="本家Googleマップ画面と御朱印ピン地図を切り替え"
+            >
+              {isGoogleEmbedMode ? 'ピン地図へ戻る' : 'Google検索地図'}
+            </button>
           </div>
 
           {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン付き） */}
@@ -607,56 +623,76 @@ export default function MapView({
         )}
       </div>
 
-      {/* Google マップ タイル統合マップ本体 */}
+      {/* Google マップ タイル統合マップ本体 または 本家Googleマップ埋め込み画面 */}
       <div className="flex-1 w-full h-full">
-        <MapContainer
-          center={[userLocation.lat, userLocation.lng]}
-          zoom={12}
-          zoomControl={false}
-          className="w-full h-full"
-        >
-          <TileLayer
-            key={currentTile.id}
-            attribution={currentTile.attribution}
-            url={currentTile.url}
-            maxZoom={20}
-          />
-
-          <MapController targetCoord={flyTarget} onMapMoved={handleMapMoved} />
-
-          {/* 検索範囲サークル */}
-          <Circle
-            center={[activeCircleCenter.lat, activeCircleCenter.lng]}
-            radius={searchRadiusKm * 1000}
-            pathOptions={{
-              color: '#c93a40',
-              weight: 1.5,
-              dashArray: '6 6',
-              fillColor: '#c5a059',
-              fillOpacity: 0.03
-            }}
-          />
-
-          {/* 現在地ピン */}
-          <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon} />
-
-          {/* 各寺社のカスタムピン */}
-          {filteredSpots.map((spot) => {
-            const visitRecord = visitMap[spot.id];
-            const isSelected = selectedSpot?.id === spot.id;
-            const isFavorite = Boolean(favoriteMap[spot.id]);
-            return (
-              <Marker
-                key={spot.id}
-                position={[spot.lat, spot.lng]}
-                icon={createCustomSpotIcon(spot, visitRecord, isSelected, isFavorite)}
-                eventHandlers={{
-                  click: () => onSelectSpot(spot)
-                }}
+        {isGoogleEmbedMode ? (
+          <div className="w-full h-full pt-28 pb-36 px-2 bg-sumi/95 flex flex-col">
+            <div className="flex-1 w-full rounded-2xl overflow-hidden border-2 border-kin shadow-2xl bg-washi relative">
+              <iframe
+                title="本家Googleマップ検索"
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(
+                  searchQuery.trim()
+                    ? searchQuery.trim()
+                    : `${(mapCenter || searchCenter || userLocation).lat},${
+                        (mapCenter || searchCenter || userLocation).lng
+                      } 神社 寺院`
+                )}&z=14&hl=ja&output=embed`}
+                className="w-full h-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
               />
-            );
-          })}
-        </MapContainer>
+            </div>
+          </div>
+        ) : (
+          <MapContainer
+            center={[userLocation.lat, userLocation.lng]}
+            zoom={12}
+            zoomControl={false}
+            className="w-full h-full"
+          >
+            <TileLayer
+              key={currentTile.id}
+              attribution={currentTile.attribution}
+              url={currentTile.url}
+              maxZoom={20}
+            />
+
+            <MapController targetCoord={flyTarget} onMapMoved={handleMapMoved} />
+
+            {/* 検索範囲サークル */}
+            <Circle
+              center={[activeCircleCenter.lat, activeCircleCenter.lng]}
+              radius={searchRadiusKm * 1000}
+              pathOptions={{
+                color: '#c93a40',
+                weight: 1.5,
+                dashArray: '6 6',
+                fillColor: '#c5a059',
+                fillOpacity: 0.03
+              }}
+            />
+
+            {/* 現在地ピン */}
+            <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon} />
+
+            {/* 各寺社のカスタムピン */}
+            {filteredSpots.map((spot) => {
+              const visitRecord = visitMap[spot.id];
+              const isSelected = selectedSpot?.id === spot.id;
+              const isFavorite = Boolean(favoriteMap[spot.id]);
+              return (
+                <Marker
+                  key={spot.id}
+                  position={[spot.lat, spot.lng]}
+                  icon={createCustomSpotIcon(spot, visitRecord, isSelected, isFavorite)}
+                  eventHandlers={{
+                    click: () => onSelectSpot(spot)
+                  }}
+                />
+              );
+            })}
+          </MapContainer>
+        )}
       </div>
 
       {/* 下部横スクロール：周辺寺社クイックカードリスト（最大80件までスムーズ表示） */}

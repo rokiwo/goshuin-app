@@ -29,12 +29,12 @@ export function calculateDistanceKm(lat1, lng1, lat2, lng2) {
  */
 function isGoshuinCandidateName(name) {
   if (!name || name.length < 2) return false;
-  // 明らかに御朱印がない小祠・地蔵・墓地・教会・詰所などを除外
-  const excludePattern = /(地蔵尊|地蔵堂|小祠|稲荷祠|墓地|霊園|納骨堂|集会所|会館|詰所|教会|天理教|金光教|黒住教|創価|顕正|幸福の科学|エホバ|モスク)/;
+  // 明らかに神社・寺院ではない墓地・集会所・新興宗教施設・キリスト教会・モスクのみを除外
+  const excludePattern = /(墓地|霊園|納骨堂|集会所|自治会館|公民館|詰所|キリスト|カトリック|プロテスタント|天理教|金光教|黒住教|創価|顕正|幸福の科学|エホバ|モスク)/;
   if (excludePattern.test(name)) return false;
 
-  // 神社・神宮・大社・天満宮・八幡宮・稲荷・戎・寺・院・大師・観音・不動・薬師などを含むものを採用
-  const validPattern = /(神社|神宮|大社|天満宮|天神|八幡|稲荷|戎|恵比寿|皇大|住吉|春日|八坂|厳島|素盞嗚|権現|明神|寺|院|庵|大師|観音|不動|薬師|毘沙門|山門|本堂)/;
+  // 神社・神宮・大社・宮・社・祠・天神・八幡・稲荷・戎・権現・明神・寺・院・堂・庵・大師・観音・不動・薬師・地蔵・山・坊・閣など幅広く採用
+  const validPattern = /(神社|神宮|大社|天満宮|天神|八幡|稲荷|戎|恵比寿|恵美須|皇大|住吉|春日|八坂|厳島|素盞嗚|権現|明神|社|宮|祠|御旅所|遥拝所|寺|院|堂|庵|坊|閣|大師|観音|不動|薬師|地蔵|阿弥陀|毘沙門|弁財天|弁天|大黒|妙見|荒神|聖天|山門|本堂|総本山|大本山|霊場)/;
   return validPattern.test(name);
 }
 
@@ -159,16 +159,17 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
   // 2. Wikipedia Geosearch（有名社寺抽出）と Overpass API（OSM全社寺抽出）を並列スタート
   const wikiPromise = fetchWikipediaFamousTemplesAndShrines(centerLat, centerLng, radiusMeters);
 
-  // Overpass QL: 正規表現を避けて高速化し、node / way 両方から最大500件取得（半径15〜20km対応）
+  // Overpass QL: religionタグが未設定の神社・お寺もすべて拾い、node / way / relation 全対応で最大1500件取得
   const query = `
-    [out:json][timeout:20];
+    [out:json][timeout:25];
     (
-      node["amenity"="place_of_worship"]["religion"="shinto"]["name"](around:${radiusMeters},${centerLat},${centerLng});
-      way["amenity"="place_of_worship"]["religion"="shinto"]["name"](around:${radiusMeters},${centerLat},${centerLng});
-      node["amenity"="place_of_worship"]["religion"="buddhist"]["name"](around:${radiusMeters},${centerLat},${centerLng});
-      way["amenity"="place_of_worship"]["religion"="buddhist"]["name"](around:${radiusMeters},${centerLat},${centerLng});
+      node["amenity"="place_of_worship"]["name"](around:${radiusMeters},${centerLat},${centerLng});
+      way["amenity"="place_of_worship"]["name"](around:${radiusMeters},${centerLat},${centerLng});
+      relation["amenity"="place_of_worship"]["name"](around:${radiusMeters},${centerLat},${centerLng});
+      node["historic"~"shrine|temple|monastery|wayside_shrine"]["name"](around:${radiusMeters},${centerLat},${centerLng});
+      way["historic"~"shrine|temple|monastery|wayside_shrine"]["name"](around:${radiusMeters},${centerLat},${centerLng});
     );
-    out center 500;
+    out center 1500;
   `;
 
   const overpassPromise = (async () => {
@@ -202,35 +203,60 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
 
   const [wikiSpots, overpassResult] = await Promise.all([wikiPromise, overpassPromise]);
 
-  // 名前の正規化キー（重複排除用）
+  // 名前の正規化キー（重複排除用：同名でも500m以上離れた別地域の神社は別々にすべて残す）
   const normalizeNameKey = (n) =>
     n.replace(/（.*?）|\(.*?\)|\s+/g, '').trim();
 
-  const seenNames = new Set(enrichedSeeds.map((s) => normalizeNameKey(s.name)));
+  const allCollected = [...enrichedSeeds];
   const dynamicSpots = [];
+
+  const isDuplicateSpot = (name, lat, lng) => {
+    const key = normalizeNameKey(name);
+    if (!key) return true;
+    return allCollected.some(
+      (ex) =>
+        normalizeNameKey(ex.name) === key &&
+        calculateDistanceKm(ex.lat, ex.lng, lat, lng) < 0.45
+    );
+  };
 
   // まずWikipediaの有名寺社を追加
   for (const wSpot of wikiSpots) {
-    const key = normalizeNameKey(wSpot.name);
-    if (!key || seenNames.has(key)) continue;
-    seenNames.add(key);
+    if (isDuplicateSpot(wSpot.name, wSpot.lat, wSpot.lng)) continue;
+    allCollected.push(wSpot);
     dynamicSpots.push(wSpot);
   }
 
-  // 次にOverpass APIの寺社を追加（小祠などを除外し、本物の神社・寺院を優先）
+  // 次にOverpass APIの寺社を追加（同名社寺でも場所が違えばすべて表示）
   for (const el of overpassResult.elements) {
     const tags = el.tags || {};
+    if (
+      tags.religion &&
+      tags.religion !== 'shinto' &&
+      tags.religion !== 'buddhist'
+    ) {
+      continue;
+    }
     const name = (tags['name:ja'] || tags['name'] || '').trim();
     if (!isGoshuinCandidateName(name)) continue;
-
-    const key = normalizeNameKey(name);
-    if (seenNames.has(key)) continue;
 
     const lat = el.lat ?? el.center?.lat;
     const lng = el.lon ?? el.center?.lon;
     if (typeof lat !== 'number' || typeof lng !== 'number') continue;
 
-    const type = tags.religion === 'shinto' ? 'shrine' : 'temple';
+    if (isDuplicateSpot(name, lat, lng)) continue;
+
+    const isShrineByName = /(?:神社|神宮|大社|天満宮|天神|八幡|稲荷|戎|恵比寿|恵美須|皇大|住吉|春日|八坂|厳島|素盞嗚|権現|明神|社|宮|祠|御旅所|遥拝所)$/.test(
+      name
+    );
+    const type =
+      tags.religion === 'shinto'
+        ? 'shrine'
+        : tags.religion === 'buddhist'
+        ? 'temple'
+        : isShrineByName
+        ? 'shrine'
+        : 'temple';
     const denomination = formatDenomination(tags, type);
 
     const city = tags['addr:city'] || '';
@@ -241,9 +267,7 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
     // ウェブサイトやwikidataタグがある寺社は御朱印授与確率が特に高い
     const hasRichTag = Boolean(tags.website || tags.wikidata || tags.wikipedia);
 
-    seenNames.add(key);
-
-    dynamicSpots.push({
+    const newSpot = {
       id: `osm-${el.type}-${el.id}`,
       name,
       reading: tags['name:ja-Hira'] || tags['name:reading'] || '',
@@ -261,7 +285,10 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
       sampleGoshuin: buildDynamicSampleGoshuin(name, type, denomination),
       hasGoshuin: hasRichTag,
       isSeed: false
-    });
+    };
+
+    allCollected.push(newSpot);
+    dynamicSpots.push(newSpot);
   }
 
   // 統合して「指定半径内」のみに絞り込み、現在地から近い順にソート
