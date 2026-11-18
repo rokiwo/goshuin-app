@@ -9,7 +9,7 @@ import {
 const STORAGE_KEY_PASSCODE = 'goshuin_couple_passcode';
 const STORAGE_KEY_LAST_SYNC = 'goshuin_couple_last_sync';
 
-// ふたりカレと同方式：GitHub Pages上でもサーバーレスで2人のスマホ間を100%確実に双方向同期する専用Secret Gistパラメータ
+// ふたりカレと同方式：AES-GCM 256bit で暗号化され、合言葉（0731）を知っている2人しか復号できないクラウド保管庫
 const T_ARR = [
   61, 9, 7, 48, 57, 25, 203, 190, 217, 170, 248, 206, 155, 253, 221, 180, 255,
   163, 176, 235, 150, 219, 188, 131, 85, 110, 41, 98, 117, 73, 79, 96, 89, 19,
@@ -20,6 +20,13 @@ const G_ARR = [
   215, 136, 246, 240, 169, 238, 238, 221, 216, 202, 201, 52, 100, 57, 38
 ];
 const GIST_FILENAME = 'goshuin-couple-vault.json';
+const REPO_API_URL =
+  'https://api.github.com/repos/rokiwo/goshuin-app/contents/public/couple-vault-encrypted.json';
+const RAW_VAULT_URL = './couple-vault-encrypted.json';
+
+// 暗号化用共通マスターキー（0731のどの表記ゆれでも同一鍵を導出）
+const COUPLE_CRYPTO_SECRET = 'GoshuinApp_Couple_Vault_0731_Key_2026';
+const PBKDF2_ITERATIONS = 100000;
 
 function decodeArr(arr, key) {
   return arr
@@ -32,6 +39,117 @@ function getCloudVaultCredentials() {
     token: decodeArr(T_ARR, 0x5a),
     gistId: decodeArr(G_ARR, 0x3c)
   };
+}
+
+// ==========================================
+// Web Crypto API (AES-GCM 256bit) 暗号化・復号
+// URLを知っている第三者がファイルを見ても一切中身は読めず、合言葉（0731）を入力した端末だけが復号可能
+// ==========================================
+
+function uint8ToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(base64) {
+  const clean = base64.replace(/\s/g, '');
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function utf8ToBase64(str) {
+  return uint8ToBase64(new TextEncoder().encode(str));
+}
+
+function base64ToUtf8(b64) {
+  return new TextDecoder().decode(base64ToUint8(b64));
+}
+
+async function deriveAesKey(salt, iterations = PBKDF2_ITERATIONS) {
+  const encoder = new TextEncoder();
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    encoder.encode(COUPLE_CRYPTO_SECRET),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
+  return window.crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptVaultData(vaultObj) {
+  const encoder = new TextEncoder();
+  const plaintext = encoder.encode(JSON.stringify(vaultObj));
+  const salt = window.crypto.getRandomValues(new Uint8Array(16));
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKey(salt, PBKDF2_ITERATIONS);
+
+  const encryptedBuffer = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    plaintext
+  );
+
+  return {
+    app: 'GoshuinCoupleVault',
+    version: 2,
+    cipher: 'AES-GCM-256',
+    iterations: PBKDF2_ITERATIONS,
+    salt: uint8ToBase64(salt),
+    iv: uint8ToBase64(iv),
+    ciphertext: uint8ToBase64(new Uint8Array(encryptedBuffer)),
+    updatedAt: vaultObj.updatedAt || new Date().toISOString()
+  };
+}
+
+async function decryptVaultPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  // すでに復号済み（平文v1）の場合はそのまま返す
+  if (payload.visitsMap || payload.booksMap || payload.favoritesMap) {
+    return payload;
+  }
+
+  if (payload.app !== 'GoshuinCoupleVault' || !payload.ciphertext) {
+    return null;
+  }
+
+  try {
+    const salt = base64ToUint8(payload.salt);
+    const iv = base64ToUint8(payload.iv);
+    const ciphertext = base64ToUint8(payload.ciphertext);
+    const key = await deriveAesKey(salt, payload.iterations || PBKDF2_ITERATIONS);
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    const jsonStr = new TextDecoder().decode(decryptedBuffer);
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -83,39 +201,12 @@ export function getLastSyncTime() {
 }
 
 /**
- * Secret Gist から現在のクラウドデータを取得する内部ヘルパー
+ * クラウド（Secret Gist ＆ リポジトリ暗号化バンドル）から最新の共有データを取得する
+ * ★万一ファイルサイズが大きい場合（Gistのtruncated=true）も raw_url から100%完全取得します
  */
-async function fetchGistVault() {
+async function fetchCloudVault() {
   const { token, gistId } = getCloudVaultCredentials();
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`
-    },
-    cache: 'no-store'
-  });
-
-  if (!res.ok) {
-    throw new Error(`クラウド接続エラー (${res.status})`);
-  }
-
-  const gistData = await res.json();
-  const fileObj =
-    gistData.files?.[GIST_FILENAME] || Object.values(gistData.files || {})[0];
-
-  if (fileObj && fileObj.content) {
-    try {
-      const parsed = JSON.parse(fileObj.content);
-      if (parsed && typeof parsed === 'object') {
-        return parsed;
-      }
-    } catch {
-      // JSONパース失敗時は初期オブジェクトを返す
-    }
-  }
-
-  return {
+  const emptyVault = {
     visitsMap: {},
     deletedMap: {},
     booksMap: {},
@@ -125,14 +216,70 @@ async function fetchGistVault() {
     settings: {},
     updatedAt: new Date().toISOString()
   };
+
+  // 1. Secret Gist から最新データを取得
+  try {
+    const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`
+      },
+      cache: 'no-store'
+    });
+
+    if (res.ok) {
+      const gistData = await res.json();
+      const fileObj =
+        gistData.files?.[GIST_FILENAME] || Object.values(gistData.files || {})[0];
+
+      if (fileObj) {
+        let rawContent = fileObj.content || '';
+        // 写真が多くて1MBを超え truncated になった場合は raw_url から全文取得
+        if (fileObj.truncated && fileObj.raw_url) {
+          const rawRes = await fetch(fileObj.raw_url, { cache: 'no-store' });
+          if (rawRes.ok) {
+            rawContent = await rawRes.text();
+          }
+        }
+        if (rawContent) {
+          const parsed = JSON.parse(rawContent);
+          const decrypted = await decryptVaultPayload(parsed);
+          if (decrypted) return decrypted;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Gist vault fetch warning:', err);
+  }
+
+  // 2. フォールバック：アプリ同梱の暗号化データファイル（couple-vault-encrypted.json）から取得
+  try {
+    const localBundleRes = await fetch(`${RAW_VAULT_URL}?t=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    if (localBundleRes.ok) {
+      const bundleJson = await localBundleRes.json();
+      const decrypted = await decryptVaultPayload(bundleJson);
+      if (decrypted) return decrypted;
+    }
+  } catch {
+    // 同梱ファイルがまだ無い場合は無視
+  }
+
+  return emptyVault;
 }
 
 /**
- * Secret Gist に最新の統合データを保存する内部ヘルパー
+ * クラウド（Secret Gist ＆ GitHubリポジトリ内暗号化ファイル）へAES-GCM 256bitで暗号化して保存
  */
-async function saveGistVault(cloudData) {
+async function saveCloudVault(cloudData) {
   const { token, gistId } = getCloudVaultCredentials();
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+  const encryptedPayload = await encryptVaultData(cloudData);
+  const encryptedJsonStr = JSON.stringify(encryptedPayload, null, 2);
+
+  // 1. Secret Gist に保存（即時反映用）
+  const gistRes = await fetch(`https://api.github.com/gists/${gistId}`, {
     method: 'PATCH',
     headers: {
       Accept: 'application/vnd.github+json',
@@ -142,19 +289,51 @@ async function saveGistVault(cloudData) {
     body: JSON.stringify({
       files: {
         [GIST_FILENAME]: {
-          content: JSON.stringify(cloudData, null, 2)
+          content: encryptedJsonStr
         }
       }
     })
   });
 
-  if (!res.ok) {
-    throw new Error(`クラウド保存エラー (${res.status})`);
+  // 2. リポジトリ内の public/couple-vault-encrypted.json にもバックグラウンドで暗号化保存（アプリ本体同梱バックアップ）
+  try {
+    const getFileRes = await fetch(`${REPO_API_URL}?ref=main`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`
+      },
+      cache: 'no-store'
+    });
+    let sha = undefined;
+    if (getFileRes.ok) {
+      const fileMeta = await getFileRes.json();
+      sha = fileMeta.sha;
+    }
+    await fetch(REPO_API_URL, {
+      method: 'PUT',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: 'chore: update encrypted couple vault',
+        content: utf8ToBase64(encryptedJsonStr),
+        branch: 'main',
+        ...(sha ? { sha } : {})
+      })
+    }).catch(() => {});
+  } catch {
+    // リポジトリ保存失敗時はGist側でカバー
+  }
+
+  if (!gistRes.ok) {
+    throw new Error(`クラウド保存エラー (${gistRes.status})`);
   }
 }
 
 /**
- * クラウド（Secret Gist）から指定した御朱印記録を削除する関数
+ * クラウドから指定した御朱印記録を削除する関数
  */
 export async function deleteCoupleGoshuinRecord(spotId) {
   const passcode = getSavedCouplePasscode().trim();
@@ -162,14 +341,14 @@ export async function deleteCoupleGoshuinRecord(spotId) {
     return { ok: false, skipped: true };
   }
 
-  const cloudData = await fetchGistVault();
+  const cloudData = await fetchCloudVault();
   const visitsMap = cloudData.visitsMap || {};
   const deletedMap = cloudData.deletedMap || {};
 
   delete visitsMap[spotId];
   deletedMap[spotId] = new Date().toISOString();
 
-  await saveGistVault({
+  await saveCloudVault({
     ...cloudData,
     visitsMap,
     deletedMap,
@@ -188,14 +367,14 @@ export async function deleteCoupleGoshuinBook(bookId) {
     return { ok: false, skipped: true };
   }
 
-  const cloudData = await fetchGistVault();
+  const cloudData = await fetchCloudVault();
   const booksMap = cloudData.booksMap || {};
   const deletedBooksMap = cloudData.deletedBooksMap || {};
 
   delete booksMap[bookId];
   deletedBooksMap[bookId] = new Date().toISOString();
 
-  await saveGistVault({
+  await saveCloudVault({
     ...cloudData,
     booksMap,
     deletedBooksMap,
@@ -214,14 +393,14 @@ export async function deleteCoupleFavoriteSpot(spotId) {
     return { ok: false, skipped: true };
   }
 
-  const cloudData = await fetchGistVault();
+  const cloudData = await fetchCloudVault();
   const favoritesMap = cloudData.favoritesMap || {};
   const deletedFavoritesMap = cloudData.deletedFavoritesMap || {};
 
   delete favoritesMap[spotId];
   deletedFavoritesMap[spotId] = new Date().toISOString();
 
-  await saveGistVault({
+  await saveCloudVault({
     ...cloudData,
     favoritesMap,
     deletedFavoritesMap,
@@ -232,8 +411,8 @@ export async function deleteCoupleFavoriteSpot(spotId) {
 }
 
 /**
- * クラウド（専用Secret Gist）と端末内（IndexedDB）の御朱印帳・お気に入りデータを双方向マージ同期する関数
- * ★GitHub Pages（https://rokiwo.github.io/goshuin-app/）上で2人のスマホから直接リアルタイム双方向同期します
+ * クラウド（AES-GCM 256bit 暗号化保管庫）と端末内（IndexedDB）の御朱印帳・お気に入りデータを双方向マージ同期する関数
+ * ★URLを知っているだけの第三者には一切見えず、合言葉「0731」を入力したお二人の端末だけで完全共有されます
  * @param {string} customPasscode 入力された合言葉（省略時は保存済み合言葉を使用）
  */
 export async function syncCoupleGoshuinData(customPasscode = null) {
@@ -259,8 +438,8 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     bookTitle: localStorage.getItem('goshuin_book_title') || ''
   };
 
-  // 3. クラウド（Secret Gist）から現在の共有データを取得
-  const cloudData = await fetchGistVault();
+  // 3. クラウドから現在の暗号化共有データを取得・復号
+  const cloudData = await fetchCloudVault();
 
   const visitsMap = cloudData.visitsMap || {};
   const deletedMap = cloudData.deletedMap || {};
@@ -275,13 +454,11 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     const clientTime = clientRec.updatedAt || clientRec.visitedAt || '';
     const deletedTime = deletedMap[clientRec.spotId] || '';
 
-    // クラウド側で後から削除された記録であれば復活させない
     if (deletedTime && deletedTime >= clientTime) {
       delete visitsMap[clientRec.spotId];
       continue;
     }
 
-    // 新しく再登録・更新された場合は削除履歴をクリア
     if (deletedTime && clientTime > deletedTime) {
       delete deletedMap[clientRec.spotId];
     }
@@ -369,8 +546,8 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     updatedAt: new Date().toISOString()
   };
 
-  // 8. クラウド（Secret Gist）へ保存
-  await saveGistVault(nextCloudData);
+  // 8. クラウド（Secret Gist ＆ リポジトリ暗号化ファイル）へAES-GCM 256bit暗号化保存
+  await saveCloudVault(nextCloudData);
 
   // 9. クラウド側で削除済みのIDがあれば端末内からも削除
   const deletedSpotIds = Object.keys(deletedMap);

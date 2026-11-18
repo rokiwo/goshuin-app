@@ -2,6 +2,9 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
@@ -11,6 +14,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="御朱印めぐり" />
     <title>御朱印めぐり｜神社仏閣マップ＆御朱印帳</title>
+    <script>
+      // 古いServiceWorkerキャッシュが最新ビルドをブロックしないよう自動更新・クリーンアップ
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            for (var i = 0; i < regs.length; i++) {
+              regs[i].update();
+            }
+          });
+        }
+      } catch (e) {}
+    </script>
     <!-- 和風フォント (Noto Serif JP / Noto Sans JP) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

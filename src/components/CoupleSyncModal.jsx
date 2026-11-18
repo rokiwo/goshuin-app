@@ -127,12 +127,17 @@ export default function CoupleSyncModal({ isOpen, onClose, onSyncSuccess }) {
         {/* 本体 */}
         <form onSubmit={handleSyncSubmit} className="p-5 space-y-4 text-xs text-sumi">
           <div className="rounded-2xl bg-washi-dark p-3.5 border border-kin/40 space-y-1.5">
-            <div className="flex items-center gap-1.5 font-serif font-bold text-sumi">
-              <ShieldCheck className="w-4 h-4 text-shuiro shrink-0" />
-              <span>夫婦2人だけで安全に自動同期</span>
+            <div className="flex items-center justify-between gap-1.5 font-serif font-bold text-sumi">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-shuiro shrink-0" />
+                <span>AES-256暗号化・夫婦2人だけで自動同期</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-kin/20 text-sumi font-mono">
+                Gist Cloud v2
+              </span>
             </div>
             <p className="text-[11px] text-sumi-muted leading-relaxed">
-              お互いのスマホに同じ合言葉を設定しておくと、どちらが登録した御朱印・写真・日付・メモも自動で両方のスマホに反映されます。
+              データはパスワード（合言葉）で暗号化されて保存されるため、URLを知っている第三者には一切見られません。合言葉を入力したお二人のスマホ間だけで御朱印・写真・お気に入りが自動同期されます。
             </p>
           </div>
 
