@@ -461,15 +461,15 @@ export default function AiConciergeView({
                                 ? removeFavoriteSpot(cand.id)
                                 : handleAddCandidateToFavorite(cand)
                             }
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-serif font-bold flex items-center gap-1 shrink-0 transition ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-serif font-bold flex items-center gap-1 shrink-0 transition border ${
                               isFav
-                                ? 'bg-amber-500 text-white'
-                                : 'bg-sumi text-kin hover:bg-sumi-light'
+                                ? 'bg-amber-400 text-sumi border-amber-600'
+                                : 'bg-sumi text-kin border-kin/50 hover:bg-sumi-light'
                             }`}
                           >
                             {isFav ? (
                               <>
-                                <Star className="w-3 h-3 fill-white" /> 追加済
+                                <Star className="w-3 h-3 fill-sumi text-sumi" /> 追加済
                               </>
                             ) : (
                               <>

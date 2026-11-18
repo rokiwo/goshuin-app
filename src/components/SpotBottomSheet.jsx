@@ -461,14 +461,14 @@ export default function SpotBottomSheet({
                 }}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-serif font-bold transition active:scale-95 border whitespace-nowrap ${
                   favoriteRecord
-                    ? 'bg-amber-500 text-white border-amber-600 shadow'
+                    ? 'bg-amber-400 text-sumi border-amber-600 shadow'
                     : 'bg-washi hover:bg-amber-50 text-sumi border-kin/60'
                 }`}
                 title="お気に入りに登録して都道府県別一覧＆最適ルート作成に追加"
               >
                 <Star
                   className={`w-3.5 h-3.5 shrink-0 ${
-                    favoriteRecord ? 'fill-white text-white' : 'text-amber-500'
+                    favoriteRecord ? 'fill-sumi text-sumi' : 'text-amber-500'
                   }`}
                 />
                 <span>{favoriteRecord ? 'お気に入り済' : 'お気に入り'}</span>

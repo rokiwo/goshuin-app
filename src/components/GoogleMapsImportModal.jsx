@@ -250,7 +250,7 @@ export default function GoogleMapsImportModal({
               <button
                 type="button"
                 onClick={handlePasteFromClipboard}
-                className="px-2.5 py-1 rounded-xl bg-amber-500 text-white text-[11px] font-serif font-bold flex items-center gap-1 shadow active:scale-95 transition shrink-0"
+                className="px-2.5 py-1 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-[11px] font-serif font-bold flex items-center gap-1 shadow active:scale-95 transition shrink-0"
               >
                 <ClipboardPaste className="w-3 h-3" />
                 <span>貼り付け</span>
@@ -390,13 +390,13 @@ export default function GoogleMapsImportModal({
                           onClick={() => handleToggleFav(cand)}
                           className={`flex-1 py-1.5 px-2.5 rounded-xl border text-xs font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition ${
                             isFav
-                              ? 'bg-amber-500 text-white border-amber-600 shadow'
+                              ? 'bg-amber-400 text-sumi border-amber-600 shadow'
                               : 'bg-washi hover:bg-amber-50 text-sumi border-kin'
                           }`}
                         >
                           <Star
                             className={`w-3.5 h-3.5 ${
-                              isFav ? 'fill-white text-white' : 'text-amber-500'
+                              isFav ? 'fill-sumi text-sumi' : 'text-amber-500'
                             }`}
                           />
                           <span>{isFav ? '★ お気に入り済' : '★ お気に入り追加'}</span>

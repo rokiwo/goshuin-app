@@ -610,13 +610,13 @@ export default function MapView({
                   onClick={(e) => handleToggleFav(e, searchResults[0])}
                   className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition ${
                     favoriteMap[searchResults[0].id]
-                      ? 'bg-amber-500 text-white border-amber-600'
+                      ? 'bg-amber-400 text-sumi border-amber-600'
                       : 'bg-sumi text-kin border-kin'
                   }`}
                 >
                   <Star
                     className={`w-3 h-3 ${
-                      favoriteMap[searchResults[0].id] ? 'fill-white text-white' : 'text-amber-400'
+                      favoriteMap[searchResults[0].id] ? 'fill-sumi text-sumi' : 'text-amber-400'
                     }`}
                   />
                   <span>
@@ -638,7 +638,7 @@ export default function MapView({
 
           {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン＆本家Gマップ確認ボタン付き） */}
           {isSearchOpen && searchQuery.trim().length >= 2 && (
-            <div className="mt-1.5 max-h-60 overflow-y-auto rounded-2xl bg-washi/98 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
+            <div className="mt-1.5 max-h-60 overflow-y-auto rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
               <div className="px-3 py-1.5 bg-sumi text-washi flex items-center justify-between text-[10px] font-serif">
                 <span className="flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-kin" />
@@ -669,7 +669,7 @@ export default function MapView({
                         setIsSearchOpen(false);
                         onOpenGmapImport(searchQuery.trim());
                       }}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-serif font-bold shadow"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-xs font-serif font-bold shadow"
                     >
                       <Link2 className="w-3.5 h-3.5" />
                       <span>URLと名前から★お気に入り追加を開く</span>
@@ -738,14 +738,14 @@ export default function MapView({
                         onClick={(e) => handleToggleFav(e, cand)}
                         className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 shrink-0 active:scale-95 transition ${
                           isFav
-                            ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                            ? 'bg-amber-400 text-sumi border-amber-600 shadow-sm'
                             : 'bg-washi border-kin/50 text-sumi hover:border-amber-500'
                         }`}
                         title="お気に入りに登録して都道府県別に保存"
                       >
                         <Star
                           className={`w-3.5 h-3.5 ${
-                            isFav ? 'fill-white text-white' : 'text-amber-500'
+                            isFav ? 'fill-sumi text-sumi' : 'text-amber-500'
                           }`}
                         />
                         <span>{isFav ? '登録済' : 'お気に入り'}</span>
@@ -760,13 +760,13 @@ export default function MapView({
 
         {/* ★「お気に入り」表示中に出る県別ワンタップ切替バー（普段は隠れ、必要な県だけを見やすく表示） */}
         {filterType === 'favorite' && (
-          <div className="pointer-events-auto flex items-center gap-1.5 bg-sumi/92 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-amber-400/70 shadow-lg overflow-x-auto no-scrollbar animate-slide-up">
+          <div className="pointer-events-auto flex items-center gap-1.5 bg-sumi/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border-2 border-amber-400 shadow-xl overflow-x-auto no-scrollbar animate-slide-up">
             <span className="inline-flex items-center gap-1 text-[10px] font-serif font-bold text-amber-300 whitespace-nowrap shrink-0">
               <Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
               <span>県別:</span>
             </span>
             {favoritePrefGroups.length === 0 ? (
-              <span className="text-[10px] text-washi/80 whitespace-nowrap">
+              <span className="text-[10px] text-washi whitespace-nowrap">
                 お気に入りが未登録です（★で追加）
               </span>
             ) : (
@@ -780,14 +780,14 @@ export default function MapView({
                       onClick={() => handleSelectFavPrefecture(grp.prefecture)}
                       className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-1 transition active:scale-95 ${
                         isSelected
-                          ? 'bg-amber-500 text-white shadow'
-                          : 'bg-white/10 text-washi/85 hover:bg-white/20'
+                          ? 'bg-amber-400 text-sumi shadow'
+                          : 'bg-sumi-light text-washi border border-white/15 hover:bg-white/20'
                       }`}
                     >
                       <span>{grp.prefecture}</span>
                       <span
                         className={`px-1.5 rounded-full text-[10px] font-sans font-black ${
-                          isSelected ? 'bg-sumi/25 text-white' : 'bg-white/15 text-amber-200'
+                          isSelected ? 'bg-sumi/20 text-sumi' : 'bg-black/40 text-amber-300'
                         }`}
                       >
                         {grp.count}
@@ -802,7 +802,7 @@ export default function MapView({
                     className={`px-2.5 py-1 rounded-full text-[11px] font-serif font-bold whitespace-nowrap shrink-0 transition active:scale-95 ${
                       activeFavPref === 'ALL'
                         ? 'bg-kin text-sumi shadow'
-                        : 'bg-white/10 text-washi/75 hover:bg-white/20'
+                        : 'bg-sumi-light text-washi border border-white/15 hover:bg-white/20'
                     }`}
                   >
                     全国({favoriteCountOnMap})
@@ -813,7 +813,7 @@ export default function MapView({
             <button
               type="button"
               onClick={() => onFilterChange('all')}
-              className="ml-auto px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 text-washi/85 text-[10px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-0.5 active:scale-95 transition"
+              className="ml-auto px-2 py-1 rounded-full bg-shuiro/90 hover:bg-shuiro text-washi text-[10px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-0.5 active:scale-95 transition border border-white/20"
               title="お気に入り絞込を解除して全社寺表示に戻す"
             >
               <X className="w-3 h-3" />
@@ -843,7 +843,7 @@ export default function MapView({
                 onClick={handleActivateFavoriteFilter}
                 className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                   filterType === 'favorite'
-                    ? 'bg-amber-500 text-white font-bold shadow-sm'
+                    ? 'bg-amber-400 text-sumi font-bold shadow-sm'
                     : 'text-amber-300 hover:text-amber-200'
                 }`}
               >
@@ -1009,9 +1009,9 @@ export default function MapView({
                 <button
                   type="button"
                   onClick={() => onOpenGmapImport(isGoogleMapsInput(searchQuery) ? searchQuery : '')}
-                  className="flex-1 py-2 px-2.5 rounded-xl bg-amber-500 text-white border border-amber-300 font-serif font-bold text-[11px] flex items-center justify-center gap-1 shadow active:scale-95 transition whitespace-nowrap"
+                  className="flex-1 py-2 px-2.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 font-serif font-bold text-[11px] flex items-center justify-center gap-1 shadow active:scale-95 transition whitespace-nowrap"
                 >
-                  <Star className="w-3.5 h-3.5 fill-white shrink-0" />
+                  <Star className="w-3.5 h-3.5 fill-sumi text-sumi shrink-0" />
                   <span>共有リンクで★追加</span>
                 </button>
               )}
@@ -1139,11 +1139,11 @@ export default function MapView({
                             title={isFavorite ? 'お気に入り解除' : 'お気に入りに登録'}
                             className={`p-1 rounded-full border transition ${
                               isFavorite
-                                ? 'bg-amber-500 text-white border-amber-600'
+                                ? 'bg-amber-400 text-sumi border-amber-600'
                                 : 'bg-washi text-amber-500 border-kin/40 hover:bg-amber-50'
                             }`}
                           >
-                            <Star className={`w-3 h-3 ${isFavorite ? 'fill-white' : ''}`} />
+                            <Star className={`w-3 h-3 ${isFavorite ? 'fill-sumi text-sumi' : ''}`} />
                           </button>
                           {hasPhoto && (
                             <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-kin-dark bg-kin/15 px-1.5 py-0.5 rounded">
