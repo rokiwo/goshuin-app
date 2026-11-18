@@ -133,18 +133,43 @@ export function parseGoogleMapsShareInput({ title = '', text = '', url = '', raw
   let extractedName = urlParsed.name || '';
   let addressHint = urlParsed.addressHint || '';
 
-  // 重複除去しつつ、場所名候補と住所候補を振り分け
+  // 重複除去しつつ、場所名候補と住所候補を振り分け（「北海道神宮」「沖縄県護国神社」等を住所誤判定しない）
+  const shrineEndingPattern =
+    /(?:神社|神宮|大社|天満宮|八幡宮|護国神社|東照宮|稲荷|権現|天神|明神|寺|院|堂|大師|観音|不動)$/;
   const uniqueSegments = [...new Set(rawSegments)];
   for (const seg of uniqueSegments) {
-    const looksLikeAddress =
-      /^〒?\d{3}-?\d{4}/.test(seg) ||
-      ALL_PREFECTURES.some((p) => seg.startsWith(p) || seg.includes(p));
+    const hasPref = ALL_PREFECTURES.some((p) => seg.includes(p));
+    const hasPostal = /^〒\d{3}-?\d{4}/.test(seg) || /^\d{3}-\d{4}/.test(seg);
+    const hasMunicipalDetail = /(?:都|道|府|県).+(?:市|区|町|村|郡|丁目|番|号|\d)/.test(seg);
+    const endsWithShrineName = shrineEndingPattern.test(seg);
 
-    if (looksLikeAddress && (!addressHint || seg.length > addressHint.length)) {
-      addressHint = seg.replace(/^〒?\d{3}-?\d{4}\s*/, '').trim();
-      if (!extractedName) {
-        // 「兵庫県神戸市 生田神社」のように1行に混在している場合の末尾社寺名抽出に備える
+    // 1行に「兵庫県神戸市... 生田神社」のように住所と社寺名が空白区切りで混在する場合は末尾を抽出
+    if ((hasPostal || hasMunicipalDetail) && endsWithShrineName && /[\s　]/.test(seg)) {
+      const tokens = seg.split(/[\s　]+/).filter(Boolean);
+      const lastToken = tokens[tokens.length - 1];
+      if (shrineEndingPattern.test(lastToken) && tokens.length >= 2) {
+        if (!extractedName) extractedName = lastToken;
+        const addrPart = tokens
+          .slice(0, -1)
+          .join(' ')
+          .replace(/^〒?\d{3}-?\d{4}\s*/, '')
+          .trim();
+        if (addrPart && (!addressHint || addrPart.length > addressHint.length)) {
+          addressHint = addrPart;
+        }
         continue;
+      }
+    }
+
+    const looksLikeAddressOnly =
+      hasPostal ||
+      (hasPref && hasMunicipalDetail && !endsWithShrineName) ||
+      (hasPref && !endsWithShrineName && !/[\s　]/.test(seg));
+
+    if (looksLikeAddressOnly) {
+      const cleanedAddr = seg.replace(/^〒?\d{3}-?\d{4}\s*/, '').trim();
+      if (cleanedAddr && (!addressHint || cleanedAddr.length > addressHint.length)) {
+        addressHint = cleanedAddr;
       }
     } else if (!extractedName && !/^★+$/.test(seg)) {
       extractedName = seg;
