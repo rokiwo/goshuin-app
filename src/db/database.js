@@ -16,6 +16,14 @@ db.version(3).stores({
   books: 'id, name, createdAt, updatedAt'
 });
 
+// v4: 行きたい神社・お寺を保存し、都道府県ごとに整理＆AIルート最適化できる「お気に入り（favorites）」テーブルを追加
+db.version(4).stores({
+  visits: 'spotId, name, type, visited, visitedAt, hasPhoto, updatedAt',
+  aiRoutes: '++id, createdAt, areaName',
+  books: 'id, name, createdAt, updatedAt',
+  favorites: 'spotId, name, type, prefecture, createdAt, updatedAt'
+});
+
 /**
  * 夫婦共有が有効なら裏側でクラウド同期を走らせる共通ヘルパー
  */
@@ -524,11 +532,12 @@ export function rotateBase64Image90(base64Url, clockwise = true) {
 }
 
 /**
- * 全ての御朱印データ・実物御朱印帳・巡拝グループ・設定をJSON形式でエクスポートしてファイルダウンロード
+ * 全ての御朱印データ・実物御朱印帳・お気に入り神社・巡拝グループ・設定をJSON形式でエクスポートしてファイルダウンロード
  */
 export async function exportGoshuinBackup() {
   const visits = await db.visits.toArray();
   const books = await db.books.toArray();
+  const favorites = await db.favorites.toArray();
   const aiRoutes = await db.aiRoutes.toArray();
 
   const settings = {
@@ -542,12 +551,14 @@ export async function exportGoshuinBackup() {
 
   const backupData = {
     app: 'GoshuinAlbum',
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     totalVisits: visits.length,
     totalBooks: books.length,
+    totalFavorites: favorites.length,
     visits,
     books,
+    favorites,
     aiRoutes,
     settings
   };
@@ -567,7 +578,12 @@ export async function exportGoshuinBackup() {
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
 
-  return { fileName, visitsCount: visits.length, booksCount: books.length };
+  return {
+    fileName,
+    visitsCount: visits.length,
+    booksCount: books.length,
+    favoritesCount: favorites.length
+  };
 }
 
 /**
@@ -580,17 +596,19 @@ export async function importGoshuinBackup(content, mode = 'merge') {
   if (typeof content === 'string') {
     data = JSON.parse(content);
   }
-  if (!data || (!Array.isArray(data.visits) && !Array.isArray(data.books))) {
+  if (!data || (!Array.isArray(data.visits) && !Array.isArray(data.books) && !Array.isArray(data.favorites))) {
     throw new Error('有効な御朱印バックアップファイル形式ではありません。');
   }
 
   const visitsToImport = Array.isArray(data.visits) ? data.visits : [];
   const booksToImport = Array.isArray(data.books) ? data.books : [];
+  const favoritesToImport = Array.isArray(data.favorites) ? data.favorites : [];
   const routesToImport = Array.isArray(data.aiRoutes) ? data.aiRoutes : [];
 
   if (mode === 'replace') {
     await db.visits.clear();
     await db.books.clear();
+    await db.favorites.clear();
     await db.aiRoutes.clear();
   }
 
@@ -605,6 +623,13 @@ export async function importGoshuinBackup(content, mode = 'merge') {
   for (const b of booksToImport) {
     if (b && b.id) {
       await db.books.put(b);
+    }
+  }
+
+  // favorites を保存
+  for (const f of favoritesToImport) {
+    if (f && f.spotId) {
+      await db.favorites.put(f);
     }
   }
 
@@ -630,7 +655,212 @@ export async function importGoshuinBackup(content, mode = 'merge') {
 
   return {
     visitsCount: visitsToImport.length,
-    booksCount: booksToImport.length
+    booksCount: booksToImport.length,
+    favoritesCount: favoritesToImport.length
   };
 }
+
+// ==========================================
+// ★ お気に入り神社・お寺（都道府県別整理＆ルート作成用）管理関数
+// ==========================================
+
+export const ALL_PREFECTURES = [
+  '北海道',
+  '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
+  '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
+  '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県', '岐阜県', '静岡県', '愛知県',
+  '三重県', '滋賀県', '京都府', '大阪府', '兵庫県', '奈良県', '和歌山県',
+  '鳥取県', '島根県', '岡山県', '広島県', '山口県',
+  '徳島県', '香川県', '愛媛県', '高知県',
+  '福岡県', '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県',
+  '沖縄県'
+];
+
+// 各都道府県の代表座標（緯度経度から住所の都道府県が抜けていた場合の自動推定フォールバック用）
+const PREF_CENTERS = [
+  { name: '北海道', lat: 43.064, lng: 141.347 },
+  { name: '青森県', lat: 40.824, lng: 140.74 },
+  { name: '岩手県', lat: 39.704, lng: 141.153 },
+  { name: '宮城県', lat: 38.269, lng: 140.872 },
+  { name: '秋田県', lat: 39.719, lng: 140.102 },
+  { name: '山形県', lat: 38.24, lng: 140.363 },
+  { name: '福島県', lat: 37.75, lng: 140.468 },
+  { name: '茨城県', lat: 36.342, lng: 140.447 },
+  { name: '栃木県', lat: 36.566, lng: 139.884 },
+  { name: '群馬県', lat: 36.391, lng: 139.06 },
+  { name: '埼玉県', lat: 35.857, lng: 139.649 },
+  { name: '千葉県', lat: 35.605, lng: 140.123 },
+  { name: '東京都', lat: 35.689, lng: 139.692 },
+  { name: '神奈川県', lat: 35.448, lng: 139.643 },
+  { name: '新潟県', lat: 37.902, lng: 139.023 },
+  { name: '富山県', lat: 36.695, lng: 137.211 },
+  { name: '石川県', lat: 36.594, lng: 136.626 },
+  { name: '福井県', lat: 36.065, lng: 136.222 },
+  { name: '山梨県', lat: 35.664, lng: 138.568 },
+  { name: '長野県', lat: 36.651, lng: 138.181 },
+  { name: '岐阜県', lat: 35.391, lng: 136.722 },
+  { name: '静岡県', lat: 34.977, lng: 138.383 },
+  { name: '愛知県', lat: 35.18, lng: 136.907 },
+  { name: '三重県', lat: 34.73, lng: 136.509 },
+  { name: '滋賀県', lat: 35.004, lng: 135.869 },
+  { name: '京都府', lat: 35.021, lng: 135.756 },
+  { name: '大阪府', lat: 34.686, lng: 135.52 },
+  { name: '兵庫県', lat: 34.691, lng: 135.183 },
+  { name: '奈良県', lat: 34.685, lng: 135.833 },
+  { name: '和歌山県', lat: 34.226, lng: 135.168 },
+  { name: '鳥取県', lat: 35.504, lng: 134.238 },
+  { name: '島根県', lat: 35.472, lng: 133.051 },
+  { name: '岡山県', lat: 34.662, lng: 133.935 },
+  { name: '広島県', lat: 34.397, lng: 132.46 },
+  { name: '山口県', lat: 34.186, lng: 131.471 },
+  { name: '徳島県', lat: 34.066, lng: 134.559 },
+  { name: '香川県', lat: 34.34, lng: 134.043 },
+  { name: '愛媛県', lat: 33.842, lng: 132.766 },
+  { name: '高知県', lat: 33.56, lng: 133.531 },
+  { name: '福岡県', lat: 33.606, lng: 130.418 },
+  { name: '佐賀県', lat: 33.249, lng: 130.299 },
+  { name: '長崎県', lat: 32.745, lng: 129.874 },
+  { name: '熊本県', lat: 32.79, lng: 130.742 },
+  { name: '大分県', lat: 33.238, lng: 131.613 },
+  { name: '宮崎県', lat: 31.911, lng: 131.424 },
+  { name: '鹿児島県', lat: 31.56, lng: 130.558 },
+  { name: '沖縄県', lat: 26.212, lng: 127.681 }
+];
+
+/**
+ * 住所・都道府県プロパティ・緯度経度から都道府県名（47都道府県）を確実に判定する
+ */
+export function extractPrefectureFromSpot(spot = {}) {
+  const rawPref = String(spot.prefecture || '').trim();
+  if (rawPref && ALL_PREFECTURES.includes(rawPref)) {
+    return rawPref;
+  }
+
+  const text = `${rawPref} ${spot.address || ''} ${spot.name || ''}`;
+  for (const p of ALL_PREFECTURES) {
+    if (text.includes(p)) return p;
+    const shortName = p.replace(/[都府県]$/, '');
+    if (shortName.length >= 2 && p !== '北海道' && text.includes(shortName)) {
+      // 「京都府」と「東京都」の誤判定を防ぐ
+      if (shortName === '東京' && text.includes('東京')) return '東京都';
+      if (shortName === '京都' && !text.includes('東京')) return '京都府';
+      if (shortName !== '東京' && shortName !== '京都') return p;
+    }
+  }
+
+  // 座標があれば一番近い都道府県を推定
+  if (typeof spot.lat === 'number' && typeof spot.lng === 'number' && !Number.isNaN(spot.lat) && !Number.isNaN(spot.lng)) {
+    let bestPref = '兵庫県';
+    let minD = Infinity;
+    for (const c of PREF_CENTERS) {
+      const d = Math.hypot((spot.lat - c.lat) * 111, (spot.lng - c.lng) * 91);
+      if (d < minD) {
+        minD = d;
+        bestPref = c.name;
+      }
+    }
+    return bestPref;
+  }
+
+  return '未分類';
+}
+
+/**
+ * 神社・お寺をお気に入りに追加・更新する
+ */
+export async function saveFavoriteSpot(spot, updates = {}) {
+  if (!spot || !spot.id) return null;
+  const existing = await db.favorites.get(spot.id);
+  const now = new Date().toISOString();
+  const prefecture =
+    updates.prefecture ||
+    spot.prefecture ||
+    existing?.prefecture ||
+    extractPrefectureFromSpot(spot);
+
+  const record = {
+    spotId: spot.id,
+    name: spot.name,
+    type: spot.type || existing?.type || 'shrine',
+    denomination: spot.denomination || existing?.denomination || (spot.type === 'temple' ? '仏教（寺院）' : '神道（神社）'),
+    address: spot.address || existing?.address || '',
+    prefecture,
+    lat: typeof spot.lat === 'number' ? spot.lat : existing?.lat,
+    lng: typeof spot.lng === 'number' ? spot.lng : existing?.lng,
+    memo: updates.memo !== undefined ? updates.memo : (existing?.memo ?? ''),
+    sampleGoshuin: spot.sampleGoshuin || existing?.sampleGoshuin || [],
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+
+  await db.favorites.put(record);
+  triggerBackgroundSync();
+  return record;
+}
+
+/**
+ * お気に入りから削除する
+ */
+export async function removeFavoriteSpot(spotId) {
+  if (!spotId) return;
+  await db.favorites.delete(spotId);
+  try {
+    const savedPasscode = localStorage.getItem('goshuin_couple_passcode');
+    if (savedPasscode) {
+      const { deleteCoupleFavoriteSpot } = await import('../services/coupleSyncService.js');
+      await deleteCoupleFavoriteSpot(spotId).catch(() => {});
+    }
+  } catch {
+    // オフライン時は無視
+  }
+  triggerBackgroundSync();
+}
+
+/**
+ * お気に入り登録状態をトグル（ON/OFF切り替え）する
+ */
+export async function toggleFavoriteSpot(spot) {
+  if (!spot || !spot.id) return { isFavorite: false };
+  const existing = await db.favorites.get(spot.id);
+  if (existing) {
+    await removeFavoriteSpot(spot.id);
+    return { isFavorite: false, record: null };
+  } else {
+    const rec = await saveFavoriteSpot(spot);
+    return { isFavorite: true, record: rec };
+  }
+}
+
+/**
+ * お気に入りリストを都道府県ごとにグループ化し、47都道府県コード順で返す
+ */
+export function groupFavoritesByPrefecture(favorites = []) {
+  const map = new Map();
+  for (const fav of favorites) {
+    const pref = fav.prefecture && ALL_PREFECTURES.includes(fav.prefecture)
+      ? fav.prefecture
+      : extractPrefectureFromSpot(fav);
+    if (!map.has(pref)) {
+      map.set(pref, []);
+    }
+    map.get(pref).push({ ...fav, prefecture: pref });
+  }
+
+  const groups = [...map.entries()].map(([prefecture, items]) => ({
+    prefecture,
+    items,
+    count: items.length
+  }));
+
+  groups.sort((a, b) => {
+    const idxA = ALL_PREFECTURES.indexOf(a.prefecture);
+    const idxB = ALL_PREFECTURES.indexOf(b.prefecture);
+    const orderA = idxA === -1 ? 999 : idxA;
+    const orderB = idxB === -1 ? 999 : idxB;
+    return orderA - orderB;
+  });
+
+  return groups;
+}
+
 

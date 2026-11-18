@@ -1,16 +1,22 @@
 // Gemini API 連携サービス（ブラウザから直接 Google Generative Language API を呼び出し、サーバーレスで動作）
-// デフォルトモデルとして「gemini-3.8-flash」を標準搭載し、Google検索グラウンディング＆過去御朱印写真の自動読み取りにも対応
+// デフォルトモデルとして最新の「gemini-4-hydrogen（Gemini 4 Hydrogen）」を標準搭載し、
+// Google検索グラウンディング＆都道府県別お気に入り神社の最適ルート算出＆過去御朱印写真の自動読み取りにも対応
 
 const STORAGE_KEY_API = 'goshuin_gemini_api_key';
 const STORAGE_KEY_MODEL = 'goshuin_gemini_model';
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
 
 // 公式モデル一覧に完全対応
 export const AVAILABLE_GEMINI_MODELS = [
   {
+    id: 'gemini-4-hydrogen',
+    name: 'Gemini 4 Hydrogen（最新・デフォルト推奨）',
+    description: '最新のGemini 4高速推論モデル。お気に入り神社の最適巡拝ルート設計・Web検索・写真解読に最適'
+  },
+  {
     id: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash（デフォルト・推奨）',
-    description: '最新の主力Flashモデル。Web検索による実在御朱印調査・写真解読・ルート作成に最適'
+    name: 'Gemini 3.8 Flash',
+    description: '高速マルチモーダルFlashモデル。Web検索による実在御朱印調査・写真解読に対応'
   },
   {
     id: 'gemini-3.6-flash',
@@ -105,14 +111,15 @@ async function callGeminiApi({
   parts,
   responseSchema = null,
   temperature = 0.35,
-  useGoogleSearch = false
+  useGoogleSearch = false,
+  preferredModel = null
 }) {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
     throw new Error('API_KEY_MISSING');
   }
 
-  const primaryModel = getGeminiModel();
+  const primaryModel = preferredModel || getGeminiModel();
   const generationConfig = {
     temperature
   };
@@ -124,6 +131,7 @@ async function callGeminiApi({
 
   const candidateModels = [
     primaryModel,
+    'gemini-4-hydrogen',
     'gemini-3.8-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
@@ -132,12 +140,14 @@ async function callGeminiApi({
   ].filter((m, idx, arr) => Boolean(m) && arr.indexOf(m) === idx);
 
   let response = null;
+  let usedModel = primaryModel;
   let lastErrorText = '';
   let lastStatus = 0;
 
   const tools = useGoogleSearch ? [{ google_search: {} }] : null;
 
   for (const modelId of candidateModels) {
+    usedModel = modelId;
     response = await requestGeminiEndpoint(modelId, parts, generationConfig, apiKey, tools);
     if (response.ok) {
       break;
@@ -506,3 +516,156 @@ ${JSON.stringify(candidateSpots, null, 2)}
     temperature: 0.45
   });
 }
+
+/**
+ * 機能5: 選択した都道府県のお気に入り神社・お寺リストを「Gemini 4 Hydrogen (gemini-4-hydrogen)」APIで解析し、
+ * 最短かつ無理のない最適な参拝順序（巡拝ルート・タイムスケジュール）を自動作成する
+ */
+export async function generateFavoritePrefectureRoute({
+  prefecture,
+  favoriteSpots = [],
+  userLocation = null,
+  visitMap = {},
+  transportMode = 'car',
+  startTime = '09:00',
+  startPointNote = ''
+}) {
+  if (!favoriteSpots || favoriteSpots.length === 0) {
+    throw new Error('お気に入り神社が選択されていません。');
+  }
+
+  const spotsPayload = favoriteSpots.map((s, idx) => ({
+    id: s.spotId || s.id || `fav-${idx}`,
+    name: s.name,
+    type: s.type === 'temple' ? '寺院' : '神社',
+    address: s.address || prefecture,
+    lat: s.lat,
+    lng: s.lng,
+    memo: s.memo || '',
+    visited: Boolean(visitMap[s.spotId || s.id]?.visited)
+  }));
+
+  const modeLabel =
+    transportMode === 'walk'
+      ? '徒歩メイン'
+      : transportMode === 'car'
+      ? '車・レンタカー（駐車場・幹線道路を考慮）'
+      : '電車・バス＋徒歩（最寄り駅・バス路線を考慮）';
+
+  const startContext = startPointNote.trim()
+    ? `出発地点: 「${startPointNote.trim()}」`
+    : userLocation && !userLocation.isFallback
+    ? `参考現在地（緯度:${userLocation.lat}, 経度:${userLocation.lng}）または${prefecture}の主要駅・ICからスタート`
+    : `${prefecture}の主要駅・ICまたは最初の神社に最もアクセスしやすい地点からスタート`;
+
+  const prompt = `
+あなたは日本の地理・交通網・神社仏閣めぐりに精通した「Gemini 4 Hydrogen 最適巡拝ルートプランナー」です。
+ユーザーが「${prefecture}」でお気に入り登録した以下の神社・お寺（全${spotsPayload.length}箇所）を、**すべて漏らさず、最も効率よく回れる最適な順番**に並び替えて巡拝ルートを作成してください。
+
+【条件】
+- 対象都道府県: ${prefecture}
+- 移動手段: ${modeLabel}
+- 出発時刻の目安: ${startTime}頃
+- ${startContext}
+- すべての候補スポット（全${spotsPayload.length}件）を steps に含め、緯度・経度および実際の道路・鉄道路線に基づき、一筆書きで無駄な往復がない最適順序（order: 1〜${spotsPayload.length}）を計算してください。
+- 社務所・授与所の受付時間（原則9:00〜16:30頃、山間部や兼務社は早め）も考慮した到着・出発目安時刻（arrivalTime / departureTime）を入れてください。
+
+【お気に入り登録スポット一覧】
+${JSON.stringify(spotsPayload, null, 2)}
+`;
+
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      courseTitle: {
+        type: 'STRING',
+        description: '都道府県名を含んだ魅力的な巡拝ルートタイトル'
+      },
+      concept: {
+        type: 'STRING',
+        description: 'なぜこの順番が最適なのか（地理的・時間的な根拠とルートの特徴、100〜160文字程度）'
+      },
+      totalEstimatedTime: {
+        type: 'STRING',
+        description: '全体の所要時間目安（例：約4時間30分）'
+      },
+      totalDistanceEstimate: {
+        type: 'STRING',
+        description: '総移動距離の目安（例：総移動 約28km）'
+      },
+      steps: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            order: { type: 'INTEGER', description: '参拝順序（1からの連番）' },
+            spotId: {
+              type: 'STRING',
+              description: 'お気に入り登録スポット一覧の id と完全一致する文字列'
+            },
+            spotName: { type: 'STRING' },
+            arrivalTime: {
+              type: 'STRING',
+              description: '到着目安時刻（例: 09:30）'
+            },
+            departureTime: {
+              type: 'STRING',
+              description: '出発目安時刻（例: 10:10）'
+            },
+            stayMinutes: { type: 'INTEGER', description: '参拝・御朱印拝受の滞在目安分数' },
+            travelNote: {
+              type: 'STRING',
+              description: '前の地点（または出発地）からの移動手段・ルート・所要時間の目安'
+            },
+            routeReason: {
+              type: 'STRING',
+              description: 'この順番で回る理由やアクセス上のポイント'
+            },
+            highlightTip: {
+              type: 'STRING',
+              description: 'この寺社の見どころ・御朱印拝受のアドバイス'
+            }
+          },
+          required: [
+            'order',
+            'spotId',
+            'spotName',
+            'arrivalTime',
+            'departureTime',
+            'stayMinutes',
+            'travelNote',
+            'routeReason',
+            'highlightTip'
+          ]
+        }
+      },
+      closingAdvice: {
+        type: 'STRING',
+        description: 'ランチ休憩のおすすめタイミングや社務所受付時間・駐車場などの総合アドバイス'
+      }
+    },
+    required: [
+      'courseTitle',
+      'concept',
+      'totalEstimatedTime',
+      'totalDistanceEstimate',
+      'steps',
+      'closingAdvice'
+    ]
+  };
+
+  // Gemini 4 Hydrogen (gemini-4-hydrogen) を最優先で指定して呼び出す
+  const result = await callGeminiApi({
+    parts: [{ text: prompt }],
+    responseSchema: schema,
+    temperature: 0.3,
+    preferredModel: 'gemini-4-hydrogen'
+  });
+
+  return {
+    ...result,
+    prefecture,
+    modelUsed: 'gemini-4-hydrogen'
+  };
+}
+

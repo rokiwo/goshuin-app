@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import {
@@ -9,8 +9,14 @@ import {
   Camera,
   MapPin,
   Layers,
-  Search
+  Search,
+  Star,
+  X,
+  Loader2,
+  ExternalLink
 } from 'lucide-react';
+import { searchShrineCandidatesByName } from '../services/shrineSearchService.js';
+import { toggleFavoriteSpot, extractPrefectureFromSpot } from '../db/database.js';
 
 // 地図タイルレイヤー定義（デフォルト：見やすいGoogleマップ日本語標準地図）
 const MAP_TILE_STYLES = {
@@ -37,11 +43,11 @@ const MAP_TILE_STYLES = {
 /**
  * 神社（朱色鳥居）とお寺（緑色寺院）、および参拝済みバッジ付きのカスタムSVGピンを生成する関数
  */
-function createCustomSpotIcon(spot, visitRecord, isSelected) {
+function createCustomSpotIcon(spot, visitRecord, isSelected, isFavorite = false) {
   const isShrine = spot.type === 'shrine';
   const isVisited = Boolean(visitRecord?.visited);
   const bgColor = isShrine ? '#c93a40' : '#2d6a4f';
-  const borderColor = isSelected ? '#c5a059' : '#fcfaf2';
+  const borderColor = isSelected ? '#c5a059' : isFavorite ? '#f59e0b' : '#fcfaf2';
   const scale = isSelected ? 1.18 : 1;
 
   // 鳥居アイコン (神社) または 寺院アイコン (お寺) のSVG
@@ -64,6 +70,11 @@ function createCustomSpotIcon(spot, visitRecord, isSelected) {
   // 参拝済みの場合は右上に金縁・朱色の「済」ミニ印を表示
   const visitedBadge = isVisited
     ? `<div style="position:absolute;top:-5px;right:-6px;background:#c5a059;color:#1a1a1a;font-size:9px;font-weight:900;width:16px;height:16px;border-radius:9999px;display:flex;align-items:center;justify-content:center;border:1.5px solid #fcfaf2;box-shadow:0 2px 4px rgba(0,0,0,0.3);">済</div>`
+    : '';
+
+  // お気に入り登録済みの場合は左上に黄金の「★」ミニバッジを表示
+  const favoriteBadge = isFavorite
+    ? `<div style="position:absolute;top:-5px;left:-6px;background:#f59e0b;color:#ffffff;font-size:9px;font-weight:900;width:16px;height:16px;border-radius:9999px;display:flex;align-items:center;justify-content:center;border:1.5px solid #fcfaf2;box-shadow:0 2px 4px rgba(0,0,0,0.3);">★</div>`
     : '';
 
   const html = `
@@ -90,6 +101,7 @@ function createCustomSpotIcon(spot, visitRecord, isSelected) {
         margin:-2px auto 0 auto;
       "></div>
       ${visitedBadge}
+      ${favoriteBadge}
     </div>
   `;
 
@@ -146,8 +158,10 @@ export default function MapView({
   searchCenter,
   spots,
   visitMap,
+  favoriteMap = {},
   selectedSpot,
   onSelectSpot,
+  onFlyToSpot,
   filterType,
   onFilterChange,
   isLoading,
@@ -163,12 +177,110 @@ export default function MapView({
   const [mapCenter, setMapCenter] = useState(null);
   const [showSearchHereBtn, setShowSearchHereBtn] = useState(false);
 
+  // ★Googleマップ上の全国神社・お寺キーワード検索＆お気に入り登録ステート
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearchingName, setIsSearchingName] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [pinnedSearchSpots, setPinnedSearchSpots] = useState([]);
+
   const currentTile = MAP_TILE_STYLES[tileStyleKey] || MAP_TILE_STYLES.google_road;
 
   const cycleTileStyle = () => {
     if (tileStyleKey === 'google_road') setTileStyleKey('google_hybrid');
     else if (tileStyleKey === 'google_hybrid') setTileStyleKey('osm');
     else setTileStyleKey('google_road');
+  };
+
+  // キーワード入力時のリアルタイム全国社寺検索（国土地理院＋OSM＋Wikipedia＋ローカル統合）
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setIsSearchingName(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearchingName(true);
+    setIsSearchOpen(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const list = await searchShrineCandidatesByName(
+          q,
+          '',
+          spots,
+          mapCenter || searchCenter || userLocation
+        );
+        if (!cancelled) {
+          setSearchResults(list);
+        }
+      } catch {
+        if (!cancelled) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsSearchingName(false);
+        }
+      }
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, spots, userLocation]);
+
+  // 検索結果から神社をタップしてGoogleマップ上でジャンプ＆詳細を開く
+  const handlePickSearchResult = (cand) => {
+    const spotObj = {
+      ...cand,
+      id: cand.id,
+      name: cand.name,
+      type: cand.type || 'shrine',
+      denomination:
+        cand.denomination || (cand.type === 'temple' ? '仏教（寺院）' : '神道（神社）'),
+      address: cand.address || cand.prefecture || '',
+      prefecture: cand.prefecture || extractPrefectureFromSpot(cand),
+      lat: cand.lat,
+      lng: cand.lng,
+      distanceKm: cand.distanceKm,
+      description:
+        cand.description ||
+        `${cand.name}（${cand.address || cand.prefecture || ''}）の参拝・御朱印スポットです。`,
+      sampleGoshuin: cand.sampleGoshuin || [],
+      hasGoshuin: true
+    };
+
+    // 検索で見つけたスポットを地図のピン一覧にも保持
+    setPinnedSearchSpots((prev) => {
+      if (prev.some((p) => p.id === spotObj.id)) return prev;
+      return [spotObj, ...prev];
+    });
+
+    setIsSearchOpen(false);
+    if (onFlyToSpot) {
+      onFlyToSpot(spotObj);
+    } else {
+      onSelectSpot(spotObj);
+    }
+  };
+
+  // 検索結果やカードからワンタップでお気に入り（★）登録・解除
+  const handleToggleFav = async (e, cand) => {
+    e.stopPropagation();
+    const spotObj = {
+      ...cand,
+      id: cand.id,
+      prefecture: cand.prefecture || extractPrefectureFromSpot(cand)
+    };
+    setPinnedSearchSpots((prev) => {
+      if (prev.some((p) => p.id === spotObj.id)) return prev;
+      return [spotObj, ...prev];
+    });
+    await toggleFavoriteSpot(spotObj);
   };
 
   // 地図をドラッグして一定距離離れたら「このエリアで寺社を検索」ボタンを表示
@@ -187,10 +299,23 @@ export default function MapView({
     }
   };
 
+  // 既存の周辺スポット＋検索でピン留めしたスポットを統合
+  const allMapSpots = React.useMemo(() => {
+    const seen = new Set(spots.map((s) => s.id));
+    const extras = pinnedSearchSpots.filter((p) => !seen.has(p.id));
+    return [...extras, ...spots];
+  }, [spots, pinnedSearchSpots]);
+
+  const favoriteCountOnMap = React.useMemo(
+    () => allMapSpots.filter((s) => Boolean(favoriteMap[s.id])).length,
+    [allMapSpots, favoriteMap]
+  );
+
   // フィルタ適用後のスポット一覧
-  const filteredSpots = spots.filter((spot) => {
+  const filteredSpots = allMapSpots.filter((spot) => {
     if (filterType === 'shrine') return spot.type === 'shrine';
     if (filterType === 'temple') return spot.type === 'temple';
+    if (filterType === 'favorite') return Boolean(favoriteMap[spot.id]);
     if (filterType === 'visited') return Boolean(visitMap[spot.id]?.visited);
     return true;
   });
@@ -199,8 +324,148 @@ export default function MapView({
 
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
-      {/* 上部フローティング：種別フィルタピル＆地図切替・再検索ボタン */}
-      <div className="absolute top-3 left-3 right-3 z-20 flex flex-col gap-2 pointer-events-none">
+      {/* 上部フローティング：Googleマップ全国神社検索バー ＆ 種別フィルタピル ＆ 地図切替 */}
+      <div className="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-col gap-1.5 pointer-events-none">
+        {/* ★Googleマップ全国神社・お寺検索ボックス（お気に入りワンタップ登録付き） */}
+        <div className="relative pointer-events-auto">
+          <div className="flex items-center gap-1.5 bg-washi/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border-2 border-kin shadow-xl">
+            <Search className="w-4 h-4 text-shuiro shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onFocus={() => {
+                if (searchQuery.trim().length >= 2) setIsSearchOpen(true);
+              }}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="神社・お寺を全国検索 (例: 伊勢神宮、京都 八坂神社)"
+              className="flex-1 bg-transparent text-xs font-serif font-bold text-sumi placeholder:text-sumi-muted/75 focus:outline-none min-w-0"
+            />
+            {isSearchingName && (
+              <Loader2 className="w-3.5 h-3.5 text-shuiro animate-spin shrink-0" />
+            )}
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setIsSearchOpen(false);
+                }}
+                className="p-1 rounded-full hover:bg-sumi/10 text-sumi-muted shrink-0"
+                title="検索クリア"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン付き） */}
+          {isSearchOpen && searchQuery.trim().length >= 2 && (
+            <div className="mt-1.5 max-h-64 overflow-y-auto rounded-2xl bg-washi/98 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
+              <div className="px-3 py-1.5 bg-sumi text-washi flex items-center justify-between text-[10px] font-serif">
+                <span className="flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-kin" />
+                  {isSearchingName
+                    ? `「${searchQuery.trim()}」を全国検索中...`
+                    : `検索結果 ${searchResults.length}件（★でお気に入り保存・県別整理）`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsSearchOpen(false)}
+                  className="text-kin font-bold hover:underline"
+                >
+                  閉じる
+                </button>
+              </div>
+
+              {!isSearchingName && searchResults.length === 0 ? (
+                <div className="p-3 text-center space-y-2">
+                  <p className="text-xs text-sumi-muted">
+                    アプリ内マップ候補で見つかりませんでした。
+                  </p>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      searchQuery.trim()
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-shuiro text-washi text-xs font-serif font-bold shadow"
+                  >
+                    <span>Googleマップ本家で「{searchQuery.trim()}」を開く</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              ) : (
+                searchResults.map((cand) => {
+                  const isFav = Boolean(favoriteMap[cand.id]);
+                  const isVisited = Boolean(visitMap[cand.id]?.visited);
+                  const pref = cand.prefecture || extractPrefectureFromSpot(cand);
+                  return (
+                    <div
+                      key={cand.id}
+                      onClick={() => handlePickSearchResult(cand)}
+                      className="p-2.5 hover:bg-washi-dark/70 transition flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-washi ${
+                              cand.type === 'temple' ? 'bg-tera' : 'bg-shuiro'
+                            }`}
+                          >
+                            {cand.type === 'temple' ? '寺院' : '神社'}
+                          </span>
+                          {pref && (
+                            <span className="px-1.5 py-0.5 rounded bg-kin/25 text-sumi font-serif font-bold text-[10px]">
+                              {pref}
+                            </span>
+                          )}
+                          <span className="font-serif font-bold text-xs text-sumi truncate">
+                            {cand.name}
+                          </span>
+                          {isVisited && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-shuiro/15 text-shuiro font-bold">
+                              参拝済
+                            </span>
+                          )}
+                          {cand.distanceLabel && (
+                            <span className="text-[10px] text-kin-dark font-medium">
+                              ({cand.distanceLabel})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-sumi-muted truncate mt-0.5 flex items-center gap-1">
+                          <MapPin className="w-2.5 h-2.5 text-shuiro shrink-0" />
+                          <span>{cand.address}</span>
+                        </p>
+                      </div>
+
+                      {/* ワンタップお気に入り登録ボタン */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleFav(e, cand)}
+                        className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 shrink-0 active:scale-95 transition ${
+                          isFav
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                            : 'bg-washi border-kin/50 text-sumi hover:border-amber-500'
+                        }`}
+                        title="お気に入りに登録して都道府県別に保存"
+                      >
+                        <Star
+                          className={`w-3.5 h-3.5 ${
+                            isFav ? 'fill-white text-white' : 'text-amber-500'
+                          }`}
+                        />
+                        <span>{isFav ? '登録済' : 'お気に入り'}</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between gap-1.5 pointer-events-auto">
           <div className="flex items-center gap-1 bg-sumi/90 backdrop-blur-md p-1 rounded-full border border-kin/30 shadow-lg overflow-x-auto no-scrollbar">
             <button
@@ -212,7 +477,19 @@ export default function MapView({
                   : 'text-washi/80 hover:text-washi'
               }`}
             >
-              全社寺 ({spots.length})
+              全社寺 ({allMapSpots.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => onFilterChange('favorite')}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 whitespace-nowrap ${
+                filterType === 'favorite'
+                  ? 'bg-amber-500 text-white font-bold shadow-sm'
+                  : 'text-amber-300 hover:text-amber-200'
+              }`}
+            >
+              <Star className="w-3 h-3 fill-current" />
+              お気に入り ({favoriteCountOnMap})
             </button>
             <button
               type="button"
@@ -224,7 +501,7 @@ export default function MapView({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-shuiro inline-block border border-washi/60" />
-              神社 ({spots.filter((s) => s.type === 'shrine').length})
+              神社 ({allMapSpots.filter((s) => s.type === 'shrine').length})
             </button>
             <button
               type="button"
@@ -236,7 +513,7 @@ export default function MapView({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-tera inline-block border border-washi/60" />
-              寺院 ({spots.filter((s) => s.type === 'temple').length})
+              寺院 ({allMapSpots.filter((s) => s.type === 'temple').length})
             </button>
             <button
               type="button"
@@ -365,11 +642,12 @@ export default function MapView({
           {filteredSpots.map((spot) => {
             const visitRecord = visitMap[spot.id];
             const isSelected = selectedSpot?.id === spot.id;
+            const isFavorite = Boolean(favoriteMap[spot.id]);
             return (
               <Marker
                 key={spot.id}
                 position={[spot.lat, spot.lng]}
-                icon={createCustomSpotIcon(spot, visitRecord, isSelected)}
+                icon={createCustomSpotIcon(spot, visitRecord, isSelected, isFavorite)}
                 eventHandlers={{
                   click: () => onSelectSpot(spot)
                 }}
@@ -386,14 +664,14 @@ export default function MapView({
             const visitRecord = visitMap[spot.id];
             const isVisited = Boolean(visitRecord?.visited);
             const hasPhoto = Boolean(visitRecord?.photoDataUrl);
+            const isFavorite = Boolean(favoriteMap[spot.id]);
             const isShrine = spot.type === 'shrine';
 
             return (
-              <button
+              <div
                 key={spot.id}
-                type="button"
                 onClick={() => onSelectSpot(spot)}
-                className={`text-left shrink-0 w-64 rounded-2xl p-3 transition shadow-xl border backdrop-blur-md flex flex-col justify-between ${
+                className={`text-left shrink-0 w-64 rounded-2xl p-3 transition shadow-xl border backdrop-blur-md flex flex-col justify-between cursor-pointer ${
                   selectedSpot?.id === spot.id
                     ? 'bg-washi border-shuiro ring-2 ring-shuiro/40'
                     : 'bg-washi/95 border-kin/40 hover:border-kin'
@@ -416,7 +694,19 @@ export default function MapView({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleFav(e, spot)}
+                        title={isFavorite ? 'お気に入り解除' : 'お気に入りに登録'}
+                        className={`p-1 rounded-full border transition ${
+                          isFavorite
+                            ? 'bg-amber-500 text-white border-amber-600'
+                            : 'bg-washi text-amber-500 border-kin/40 hover:bg-amber-50'
+                        }`}
+                      >
+                        <Star className={`w-3 h-3 ${isFavorite ? 'fill-white' : ''}`} />
+                      </button>
                       {hasPhoto && (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-kin-dark bg-kin/15 px-1.5 py-0.5 rounded">
                           <Camera className="w-3 h-3" />
@@ -450,7 +740,7 @@ export default function MapView({
                     御朱印を見る →
                   </span>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

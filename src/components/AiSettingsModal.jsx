@@ -139,7 +139,7 @@ export default function AiSettingsModal({ isOpen, onClose, onUpdated }) {
           <div className="space-y-2">
             <label className="font-serif font-bold text-sm flex items-center gap-1.5">
               <Cpu className="w-4 h-4 text-kin-dark" />
-              使用するAIモデル（標準: Gemini 3.8 Flash）
+              使用するAIモデル（標準: Gemini 4 Hydrogen）
             </label>
 
             <div className="space-y-2">
@@ -202,7 +202,7 @@ export default function AiSettingsModal({ isOpen, onClose, onUpdated }) {
                     type="text"
                     value={customModel}
                     onChange={(e) => setCustomModel(e.target.value)}
-                    placeholder="例: gemini-3.8-flash"
+                    placeholder="例: gemini-4-hydrogen"
                     className="mt-2 w-full rounded-lg border border-washi-border bg-washi px-3 py-1.5 text-xs font-mono"
                   />
                 )}

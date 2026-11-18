@@ -72,6 +72,20 @@ export async function deleteCoupleGoshuinBook(bookId) {
 }
 
 /**
+ * クラウドからお気に入り社寺を削除する関数
+ */
+export async function deleteCoupleFavoriteSpot(spotId) {
+  const passcode = getSavedCouplePasscode().trim();
+  if (!passcode || !spotId) return { ok: false, skipped: true };
+  const response = await fetch('/api/couple-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passcode, action: 'deleteFavorite', spotId })
+  });
+  return response.json();
+}
+
+/**
  * クラウド（Netlify Blobs）と端末内（IndexedDB）の御朱印帳データを双方向同期する関数
  * @param {string} customPasscode 入力された合言葉（省略時は保存済み合言葉を使用）
  */
@@ -81,9 +95,10 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     return { ok: false, skipped: true };
   }
 
-  // 1. 現在のスマホ内の全参拝レコード・実物御朱印帳を取得
+  // 1. 現在のスマホ内の全参拝レコード・実物御朱印帳・お気に入りを取得
   const localVisits = await db.visits.toArray();
   const localBooks = await db.books.toArray();
+  const localFavorites = await db.favorites.toArray();
 
   // 2. 現在の設定（Gemini APIキー、御朱印帳テーマなど）を取得
   const currentSettings = {
@@ -104,6 +119,7 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
       action: 'sync',
       visits: localVisits,
       books: localBooks,
+      favorites: localFavorites,
       settings: currentSettings
     })
   });
@@ -121,13 +137,19 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
   if (Array.isArray(data.deletedBookIds) && data.deletedBookIds.length > 0) {
     await db.books.bulkDelete(data.deletedBookIds);
   }
+  if (Array.isArray(data.deletedFavoriteIds) && data.deletedFavoriteIds.length > 0) {
+    await db.favorites.bulkDelete(data.deletedFavoriteIds);
+  }
 
-  // 5. クラウドから返ってきた統合済み参拝レコードをスマホ内IndexedDBに反映
+  // 5. クラウドから返ってきた統合済み参拝レコード・お気に入りをスマホ内IndexedDBに反映
   if (Array.isArray(data.visits) && data.visits.length > 0) {
     await db.visits.bulkPut(data.visits);
   }
   if (Array.isArray(data.books) && data.books.length > 0) {
     await db.books.bulkPut(data.books);
+  }
+  if (Array.isArray(data.favorites) && data.favorites.length > 0) {
+    await db.favorites.bulkPut(data.favorites);
   }
 
   // 6. クラウド側にGemini APIキーがあり、このスマホにまだ未設定なら自動で引き継ぐ

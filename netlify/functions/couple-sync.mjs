@@ -70,6 +70,25 @@ export default async (req) => {
     const deletedMap = cloudData.deletedMap || {};
     const booksMap = cloudData.booksMap || {};
     const deletedBooksMap = cloudData.deletedBooksMap || {};
+    const favoritesMap = cloudData.favoritesMap || {};
+    const deletedFavoritesMap = cloudData.deletedFavoritesMap || {};
+
+    // ★お気に入り社寺の削除アクション
+    if (action === 'deleteFavorite' && spotId) {
+      delete favoritesMap[spotId];
+      deletedFavoritesMap[spotId] = new Date().toISOString();
+      cloudData = {
+        ...cloudData,
+        favoritesMap,
+        deletedFavoritesMap,
+        updatedAt: new Date().toISOString()
+      };
+      await store.setJSON(roomKey, cloudData);
+      return new Response(JSON.stringify({ ok: true, deletedFavoriteId: spotId }), {
+        status: 200,
+        headers
+      });
+    }
 
     // ★実物御朱印帳の削除アクション
     if (action === 'deleteBook' && body.bookId) {
@@ -163,6 +182,25 @@ export default async (req) => {
         }
       }
 
+      // お気に入り社寺のマージ
+      const clientFavorites = Array.isArray(body.favorites) ? body.favorites : [];
+      for (const fav of clientFavorites) {
+        if (!fav || !fav.spotId) continue;
+        const t = fav.updatedAt || '';
+        const delT = deletedFavoritesMap[fav.spotId] || '';
+        if (delT && delT >= t) {
+          delete favoritesMap[fav.spotId];
+          continue;
+        }
+        if (delT && t > delT) {
+          delete deletedFavoritesMap[fav.spotId];
+        }
+        const ex = favoritesMap[fav.spotId];
+        if (!ex || t >= (ex.updatedAt || '')) {
+          favoritesMap[fav.spotId] = fav;
+        }
+      }
+
       const mergedSettings = {
         ...(cloudData.settings || {})
       };
@@ -184,6 +222,8 @@ export default async (req) => {
         deletedMap,
         booksMap,
         deletedBooksMap,
+        favoritesMap,
+        deletedFavoritesMap,
         settings: mergedSettings,
         updatedAt: new Date().toISOString()
       };
@@ -200,6 +240,8 @@ export default async (req) => {
         deletedSpotIds: Object.keys(cloudData.deletedMap || {}),
         books: Object.values(cloudData.booksMap || {}),
         deletedBookIds: Object.keys(cloudData.deletedBooksMap || {}),
+        favorites: Object.values(cloudData.favoritesMap || {}),
+        deletedFavoriteIds: Object.keys(cloudData.deletedFavoritesMap || {}),
         settings: cloudData.settings || {},
         updatedAt: cloudData.updatedAt
       }),

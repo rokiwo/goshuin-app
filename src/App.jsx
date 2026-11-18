@@ -119,9 +119,19 @@ function AppContent({ activeTab, setActiveTab }) {
     return [5, 10, 15, 20].includes(saved) ? saved : 10;
   });
 
-  // Dexie.js (IndexedDB) から参拝記録・実物御朱印帳をリアルタイム購読
+  // Dexie.js (IndexedDB) から参拝記録・実物御朱印帳・お気に入りをリアルタイム購読
   const visitRecords = useLiveQuery(() => db.visits.toArray(), [], []);
   const goshuinBooks = useLiveQuery(() => db.books.toArray(), [], []);
+  const favoriteRecords = useLiveQuery(() => db.favorites.toArray(), [], []);
+
+  // お気に入り社寺ID（spotId）をキーにした参照マップ
+  const favoriteMap = React.useMemo(() => {
+    const map = {};
+    for (const fav of favoriteRecords || []) {
+      map[fav.spotId] = fav;
+    }
+    return map;
+  }, [favoriteRecords]);
 
   // レコードID（spotId）をキーにした参照マップ（同じ社寺の2枚目以降も個別に参照）
   const entryMap = React.useMemo(() => {
@@ -143,7 +153,7 @@ function AppContent({ activeTab, setActiveTab }) {
     return map;
   }, [visitRecords]);
 
-  // 過去の御朱印や夫婦共有で追加されたカスタム寺社もマップのピン一覧に統合する
+  // 過去の御朱印・お気に入り登録済み社寺・夫婦共有で追加されたカスタム寺社もマップのピン一覧に統合する
   const mergedSpots = React.useMemo(() => {
     const existingIds = new Set(spots.map((s) => s.id));
     const customVisitedSpots = [];
@@ -166,8 +176,30 @@ function AppContent({ activeTab, setActiveTab }) {
         });
       }
     }
-    return [...spots, ...customVisitedSpots];
-  }, [spots, visitRecords, userLocation.lat, userLocation.lng]);
+
+    const customFavoriteSpots = [];
+    for (const fav of favoriteRecords || []) {
+      if (!existingIds.has(fav.spotId) && typeof fav.lat === 'number' && typeof fav.lng === 'number') {
+        existingIds.add(fav.spotId);
+        customFavoriteSpots.push({
+          id: fav.spotId,
+          name: fav.name,
+          type: fav.type || 'shrine',
+          denomination: fav.denomination || (fav.type === 'temple' ? '仏教（寺院）' : '神道（神社）'),
+          address: fav.address || fav.prefecture || '',
+          prefecture: fav.prefecture || '',
+          lat: fav.lat,
+          lng: fav.lng,
+          distanceKm: calculateDistanceKm(userLocation.lat, userLocation.lng, fav.lat, fav.lng),
+          description: `${fav.prefecture || ''}のお気に入りに登録された参拝スポットです。`,
+          sampleGoshuin: fav.sampleGoshuin || [],
+          hasGoshuin: true
+        });
+      }
+    }
+
+    return [...spots, ...customVisitedSpots, ...customFavoriteSpots];
+  }, [spots, visitRecords, favoriteRecords, userLocation.lat, userLocation.lng]);
 
   const visitedCount = React.useMemo(
     () => (visitRecords || []).filter((r) => r.visited).length,
@@ -347,8 +379,10 @@ function AppContent({ activeTab, setActiveTab }) {
               searchCenter={searchCenter}
               spots={mergedSpots}
               visitMap={visitMap}
+              favoriteMap={favoriteMap}
               selectedSpot={selectedSpot}
               onSelectSpot={handleSelectSpot}
+              onFlyToSpot={handleSelectSpot}
               filterType={filterType}
               onFilterChange={setFilterType}
               isLoading={isLoadingOverpass}
@@ -365,6 +399,7 @@ function AppContent({ activeTab, setActiveTab }) {
             <AiConciergeView
               userLocation={userLocation}
               spots={mergedSpots}
+              favorites={favoriteRecords || []}
               visitMap={visitMap}
               onSelectSpotOnMap={handleSelectSpot}
               onOpenAiSettings={() => setIsAiModalOpen(true)}
@@ -397,20 +432,25 @@ function AppContent({ activeTab, setActiveTab }) {
               }`}
             >
               <Compass className="w-4 h-4" />
-              <span>探す</span>
+              <span>探す・検索</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('concierge')}
-              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-serif font-bold text-xs transition ${
+              className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-serif font-bold text-xs transition ${
                 activeTab === 'concierge'
                   ? 'bg-shuiro text-washi shadow-md border border-kin/40'
                   : 'text-washi/70 hover:text-washi'
               }`}
             >
               <Sparkles className="w-4 h-4 text-kin" />
-              <span>AIコース</span>
+              <span>お気に入り・巡拝</span>
+              {(favoriteRecords || []).length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-sumi text-[10px] font-sans font-black">
+                  {(favoriteRecords || []).length}
+                </span>
+              )}
             </button>
 
             <button
@@ -436,6 +476,7 @@ function AppContent({ activeTab, setActiveTab }) {
         <SpotBottomSheet
           spot={selectedSpot}
           visitRecord={selectedSpot ? visitMap[selectedSpot.id] : null}
+          favoriteRecord={selectedSpot ? favoriteMap[selectedSpot.id] : null}
           allVisits={visitRecords || []}
           books={goshuinBooks || []}
           onClose={() => setSelectedSpot(null)}

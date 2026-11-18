@@ -23,7 +23,8 @@ import {
   FolderPlus,
   Book,
   Tag,
-  ChevronLeft
+  ChevronLeft,
+  Star
 } from 'lucide-react';
 import GoshuinSampleGraphic from './GoshuinSampleGraphic.jsx';
 import GoshuinPhotoLightbox from './GoshuinPhotoLightbox.jsx';
@@ -35,7 +36,11 @@ import {
   getPlaceId,
   createAdditionalEntryId,
   suggestGroupNameForSpot,
-  getAllCustomGroupNames
+  getAllCustomGroupNames,
+  saveFavoriteSpot,
+  removeFavoriteSpot,
+  extractPrefectureFromSpot,
+  ALL_PREFECTURES
 } from '../db/database.js';
 import {
   generateSpotAiGuide,
@@ -56,6 +61,7 @@ import { useBackHandler } from '../contexts/BackHandlerContext.jsx';
 export default function SpotBottomSheet({
   spot,
   visitRecord,
+  favoriteRecord = null,
   allVisits = [],
   books = [],
   onClose,
@@ -452,16 +458,66 @@ export default function SpotBottomSheet({
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sumi/10 hover:bg-sumi/20 text-sumi text-xs font-serif font-bold transition shrink-0 active:scale-95 border border-sumi/20"
-              title="閉じる"
-            >
-              <span>閉じる</span>
-              <X className="w-4 h-4 text-sumi" />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* ★お気に入り登録ボタン（都道府県別管理・ルート作成用） */}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (favoriteRecord) {
+                    await removeFavoriteSpot(spot.id);
+                  } else {
+                    await saveFavoriteSpot(spot);
+                  }
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-serif font-bold transition active:scale-95 border ${
+                  favoriteRecord
+                    ? 'bg-amber-500 text-white border-amber-600 shadow'
+                    : 'bg-washi hover:bg-amber-50 text-sumi border-kin/60'
+                }`}
+                title="お気に入りに登録して都道府県別一覧＆最適ルート作成に追加"
+              >
+                <Star
+                  className={`w-4 h-4 ${
+                    favoriteRecord ? 'fill-white text-white' : 'text-amber-500'
+                  }`}
+                />
+                <span>{favoriteRecord ? 'お気に入り済' : 'お気に入り'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sumi/10 hover:bg-sumi/20 text-sumi text-xs font-serif font-bold transition active:scale-95 border border-sumi/20"
+                title="閉じる"
+              >
+                <span>閉じる</span>
+                <X className="w-4 h-4 text-sumi" />
+              </button>
+            </div>
           </div>
+
+          {/* お気に入り登録時の都道府県セレクター */}
+          {favoriteRecord && (
+            <div className="mt-2.5 pt-2 border-t border-kin/30 flex items-center justify-between gap-2 text-xs">
+              <span className="text-[11px] font-serif font-bold text-amber-700 flex items-center gap-1">
+                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                お気に入り登録県（県別ルート作成用）:
+              </span>
+              <select
+                value={favoriteRecord.prefecture || extractPrefectureFromSpot(spot)}
+                onChange={(e) => {
+                  saveFavoriteSpot(spot, { prefecture: e.target.value });
+                }}
+                className="rounded-lg border border-amber-500/50 bg-washi px-2 py-1 text-xs font-serif font-bold text-sumi focus:outline-none"
+              >
+                {ALL_PREFECTURES.map((pref) => (
+                  <option key={pref} value={pref}>
+                    {pref}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* スクロール可能なコンテンツ領域 */}
