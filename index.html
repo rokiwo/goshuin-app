@@ -15,23 +15,51 @@
     <meta name="apple-mobile-web-app-title" content="御朱印めぐり" />
     <title>御朱印めぐり｜神社仏閣マップ＆御朱印帳</title>
     <script>
-      // 古いServiceWorkerキャッシュが最新ビルドをブロックしないよう自動更新・クリーンアップ
-      try {
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(function (regs) {
-            for (var i = 0; i < regs.length; i++) {
-              regs[i].update();
+      // PWA（ホーム画面アプリ）起動時に古いキャッシュで新UIが反映されない問題を確実に解消する自動アップデート機構
+      (function () {
+        var APP_BUILD_VERSION = '2026.11.19.v5';
+        try {
+          var prevVer = localStorage.getItem('goshuin_app_build_ver');
+          if (prevVer !== APP_BUILD_VERSION) {
+            localStorage.setItem('goshuin_app_build_ver', APP_BUILD_VERSION);
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                var promises = regs.map(function (r) {
+                  return r.unregister();
+                });
+                Promise.all(promises).then(function () {
+                  if ('caches' in window) {
+                    caches.keys().then(function (names) {
+                      Promise.all(
+                        names.map(function (n) {
+                          return caches.delete(n);
+                        })
+                      ).then(function () {
+                        window.location.reload();
+                      });
+                    });
+                  } else {
+                    window.location.reload();
+                  }
+                });
+              });
             }
-          });
-        }
-      } catch (e) {}
+          } else if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              for (var i = 0; i < regs.length; i++) {
+                regs[i].update();
+              }
+            });
+          }
+        } catch (e) {}
+      })();
     </script>
     <!-- 和風フォント (Noto Serif JP / Noto Sans JP) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@500;700;900&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-DviT64f9.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BDSYIwS_.css">
+    <script type="module" crossorigin src="./assets/index-BGP83gbC.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DED2Ej4f.css">
   <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
   <body class="bg-sumi text-sumi antialiased selection:bg-shuiro selection:text-white overflow-hidden">
     <div id="root"></div>
