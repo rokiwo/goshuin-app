@@ -466,59 +466,60 @@ export default function MapView({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-1.5 pointer-events-auto">
-          <div className="flex items-center gap-1 bg-sumi/90 backdrop-blur-md p-1 rounded-full border border-kin/30 shadow-lg overflow-x-auto no-scrollbar">
+        {/* 種別フィルタピル（横幅100%を使って「★ お気に入り」などの文字が隠れないように配置） */}
+        <div className="w-full pointer-events-auto">
+          <div className="flex items-center justify-between gap-1 bg-sumi/90 backdrop-blur-md p-1 rounded-full border border-kin/30 shadow-lg overflow-x-auto no-scrollbar">
             <button
               type="button"
               onClick={() => onFilterChange('all')}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
                 filterType === 'all'
                   ? 'bg-kin text-sumi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
               }`}
             >
-              全社寺 ({allMapSpots.length})
+              全社寺({allMapSpots.length})
             </button>
             <button
               type="button"
               onClick={() => onFilterChange('favorite')}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                 filterType === 'favorite'
                   ? 'bg-amber-500 text-white font-bold shadow-sm'
                   : 'text-amber-300 hover:text-amber-200'
               }`}
             >
-              <Star className="w-3 h-3 fill-current" />
-              お気に入り ({favoriteCountOnMap})
+              <Star className="w-3 h-3 fill-current shrink-0" />
+              <span>お気に入り({favoriteCountOnMap})</span>
             </button>
             <button
               type="button"
               onClick={() => onFilterChange('shrine')}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                 filterType === 'shrine'
                   ? 'bg-shuiro text-washi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-shuiro inline-block border border-washi/60" />
-              神社 ({allMapSpots.filter((s) => s.type === 'shrine').length})
+              <span className="w-2 h-2 rounded-full bg-shuiro inline-block border border-washi/60 shrink-0" />
+              <span>神社({allMapSpots.filter((s) => s.type === 'shrine').length})</span>
             </button>
             <button
               type="button"
               onClick={() => onFilterChange('temple')}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                 filterType === 'temple'
                   ? 'bg-tera text-washi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-tera inline-block border border-washi/60" />
-              寺院 ({allMapSpots.filter((s) => s.type === 'temple').length})
+              <span className="w-2 h-2 rounded-full bg-tera inline-block border border-washi/60 shrink-0" />
+              <span>寺院({allMapSpots.filter((s) => s.type === 'temple').length})</span>
             </button>
             <button
               type="button"
               onClick={() => onFilterChange('visited')}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
                 filterType === 'visited'
                   ? 'bg-kin text-sumi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
@@ -527,60 +528,61 @@ export default function MapView({
               参拝済
             </button>
           </div>
+        </div>
 
-          {/* 地図レイヤー切替（Googleマップ / 航空写真）＋現在地＋再検索ボタン */}
+        {/* 検索範囲（5/10/15/20km）＋ 地図スタイル切替・現在地・再検索ボタンをスッキリ整理 */}
+        <div className="flex items-center justify-between gap-1.5 pointer-events-auto">
+          <div className="flex items-center gap-1 bg-sumi/90 backdrop-blur-md px-2.5 py-1 rounded-full border border-kin/30 shadow-md flex-1 min-w-0 justify-between">
+            <span className="text-[10px] font-serif font-bold text-kin flex items-center gap-0.5 shrink-0">
+              <Search className="w-2.5 h-2.5 text-shuiro" />
+              範囲:
+            </span>
+            <div className="flex items-center gap-0.5">
+              {[5, 10, 15, 20].map((km) => (
+                <button
+                  key={km}
+                  type="button"
+                  onClick={() => onChangeRadius && onChangeRadius(km)}
+                  disabled={isLoading}
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold transition whitespace-nowrap ${
+                    searchRadiusKm === km
+                      ? 'bg-shuiro text-washi shadow-sm'
+                      : 'text-washi/80 hover:text-washi'
+                  }`}
+                >
+                  {km}km
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={cycleTileStyle}
               title="地図の表示スタイル切替（Googleマップ / 航空写真）"
-              className="px-2.5 h-9 rounded-full bg-washi text-sumi border border-kin/50 shadow-lg flex items-center gap-1 text-[10px] font-bold active:scale-95 transition"
+              className="px-2 h-8 rounded-full bg-washi text-sumi border border-kin/50 shadow-lg flex items-center gap-1 text-[10px] font-bold active:scale-95 transition whitespace-nowrap"
             >
-              <Layers className="w-3.5 h-3.5 text-shuiro" />
+              <Layers className="w-3 h-3 text-shuiro shrink-0" />
               <span>{currentTile.label}</span>
             </button>
             <button
               type="button"
               onClick={onRecenterUser}
               title="現在地へ移動"
-              className="w-9 h-9 rounded-full bg-washi text-sumi border border-kin/40 shadow-lg flex items-center justify-center active:scale-95 transition"
+              className="w-8 h-8 rounded-full bg-washi text-sumi border border-kin/40 shadow-lg flex items-center justify-center active:scale-95 transition shrink-0"
             >
-              <Navigation className="w-4 h-4 text-shuiro" />
+              <Navigation className="w-3.5 h-3.5 text-shuiro" />
             </button>
             <button
               type="button"
               onClick={onRefreshNearby}
               disabled={isLoading}
               title="周辺を再検索"
-              className="w-9 h-9 rounded-full bg-sumi text-kin border border-kin/40 shadow-lg flex items-center justify-center active:scale-95 transition disabled:opacity-60"
+              className="w-8 h-8 rounded-full bg-sumi text-kin border border-kin/40 shadow-lg flex items-center justify-center active:scale-95 transition disabled:opacity-60 shrink-0"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
-          </div>
-        </div>
-
-        {/* 検索範囲（半径 5km / 10km / 15km / 20km）指定バー */}
-        <div className="flex items-center justify-between gap-1.5 pointer-events-auto bg-sumi/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-kin/30 shadow-md">
-          <span className="text-[10px] font-serif font-bold text-kin flex items-center gap-1 shrink-0">
-            <Search className="w-3 h-3 text-shuiro" />
-            検索範囲:
-          </span>
-          <div className="flex items-center gap-1">
-            {[5, 10, 15, 20].map((km) => (
-              <button
-                key={km}
-                type="button"
-                onClick={() => onChangeRadius && onChangeRadius(km)}
-                disabled={isLoading}
-                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition ${
-                  searchRadiusKm === km
-                    ? 'bg-shuiro text-washi shadow-sm scale-105'
-                    : 'text-washi/80 hover:text-washi hover:bg-white/10'
-                }`}
-              >
-                半径{km}km
-              </button>
-            ))}
           </div>
         </div>
 

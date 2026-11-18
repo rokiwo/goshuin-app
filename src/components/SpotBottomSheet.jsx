@@ -660,13 +660,13 @@ export default function SpotBottomSheet({
                   </button>
                 )}
               </div>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5 min-w-0">
                 <input
                   type="text"
                   value={groupNameText}
                   onChange={(e) => setGroupNameText(e.target.value)}
-                  placeholder="例：生田裔神八社めぐり、七福神めぐり など"
-                  className="flex-1 rounded-xl border border-kin/40 bg-washi px-3 py-1.5 text-xs font-serif text-sumi focus:outline-none focus:border-shuiro"
+                  placeholder="例：生田裔神八社めぐり、七福神めぐり"
+                  className="flex-1 min-w-0 w-0 rounded-xl border border-kin/40 bg-washi px-3 py-1.5 text-xs font-serif text-sumi focus:outline-none focus:border-shuiro"
                 />
                 <button
                   type="button"
@@ -1158,13 +1158,13 @@ export default function SpotBottomSheet({
               <NotebookPen className="w-4 h-4 text-kin-dark" />
               参拝ひとことメモ
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
               <input
                 type="text"
                 value={memoText}
                 onChange={(e) => setMemoText(e.target.value)}
                 placeholder="例：明石海峡の景色が最高でした！限定御朱印を拝受"
-                className="flex-1 rounded-xl border border-washi-border bg-washi px-3 py-2 text-xs text-sumi focus:outline-none focus:border-kin"
+                className="flex-1 min-w-0 w-0 rounded-xl border border-washi-border bg-washi px-3 py-2 text-xs text-sumi focus:outline-none focus:border-kin"
               />
               <button
                 type="button"

@@ -368,15 +368,15 @@ export default function AiConciergeView({
 
             {/* 神社クイック検索＆お気に入り追加バー */}
             <div className="space-y-1.5">
-              <div className="flex gap-1.5">
-                <div className="flex-1 flex items-center gap-1.5 rounded-xl border border-kin/50 bg-washi-dark/60 px-2.5 py-1.5">
+              <div className="flex gap-1.5 min-w-0">
+                <div className="flex-1 min-w-0 flex items-center gap-1.5 rounded-xl border border-kin/50 bg-washi-dark/60 px-2.5 py-1.5">
                   <Search className="w-3.5 h-3.5 text-shuiro shrink-0" />
                   <input
                     type="text"
                     value={quickQuery}
                     onChange={(e) => setQuickQuery(e.target.value)}
-                    placeholder="行きたい神社を検索して追加 (例: 出雲大社、三峯神社)"
-                    className="w-full bg-transparent text-xs font-serif font-bold text-sumi focus:outline-none"
+                    placeholder="行きたい神社を検索 (例: 出雲大社)"
+                    className="w-full min-w-0 bg-transparent text-xs font-serif font-bold text-sumi focus:outline-none"
                   />
                   {isQuickSearching && (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-shuiro shrink-0" />
@@ -387,7 +387,7 @@ export default function AiConciergeView({
                   value={quickAreaFilter}
                   onChange={(e) => setQuickAreaFilter(e.target.value)}
                   placeholder="県名絞込"
-                  className="w-20 rounded-xl border border-kin/40 bg-washi px-2 py-1.5 text-xs text-sumi focus:outline-none"
+                  className="w-20 shrink-0 rounded-xl border border-kin/40 bg-washi px-2 py-1.5 text-xs text-sumi focus:outline-none"
                 />
               </div>
 

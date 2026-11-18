@@ -469,7 +469,7 @@ export default function PastGoshuinModal({
         </div>
 
         {/* フォーム本体 */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs text-sumi">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 text-xs text-sumi">
           {errorMsg && (
             <div className="p-3 rounded-xl bg-shuiro-light border border-shuiro text-shuiro font-medium">
               {errorMsg}
@@ -595,7 +595,7 @@ export default function PastGoshuinModal({
               </button>
             </div>
 
-            <div className="flex gap-1.5">
+            <div className="flex items-center gap-1.5 w-full min-w-0">
               <input
                 type="text"
                 value={spotName}
@@ -607,21 +607,21 @@ export default function PastGoshuinModal({
                     setSpotType(inferSpotTypeFromName(val, spotType));
                   }
                 }}
-                placeholder="例：住吉神社、氷川神社、生田神社、清水寺 など"
+                placeholder="例：住吉神社、生田神社、清水寺"
                 required
-                className="flex-1 rounded-xl border border-washi-border bg-washi px-3.5 py-2.5 text-sm font-serif font-bold text-sumi focus:outline-none focus:border-shuiro"
+                className="flex-1 min-w-0 w-0 rounded-xl border border-washi-border bg-washi px-3 py-2 text-xs font-serif font-bold text-sumi focus:outline-none focus:border-shuiro"
               />
               <button
                 type="button"
                 onClick={handleManualSearchCandidates}
                 disabled={isSearchingCandidates || !spotName.trim()}
-                className="px-3 py-2 rounded-xl bg-sumi text-kin font-serif font-bold text-xs flex items-center gap-1 shrink-0 disabled:opacity-40 active:scale-95 transition"
+                className="px-2.5 py-2 rounded-xl bg-sumi text-kin font-serif font-bold text-xs flex items-center gap-1 shrink-0 disabled:opacity-40 active:scale-95 transition whitespace-nowrap"
                 title="全国の神社・お寺から住所候補を検索"
               >
                 {isSearchingCandidates ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                 ) : (
-                  <Search className="w-3.5 h-3.5" />
+                  <Search className="w-3.5 h-3.5 shrink-0" />
                 )}
                 <span>候補検索</span>
               </button>
@@ -644,8 +644,8 @@ export default function PastGoshuinModal({
                     type="text"
                     value={areaFilter}
                     onChange={(e) => setAreaFilter(e.target.value)}
-                    placeholder="地域で絞込 (例: 兵庫、京都)"
-                    className="w-40 rounded-lg border border-kin/40 bg-washi px-2 py-1 text-[11px] text-sumi focus:outline-none focus:border-shuiro"
+                    placeholder="地域で絞込 (例: 兵庫)"
+                    className="w-32 min-w-0 rounded-lg border border-kin/40 bg-washi px-2 py-1 text-[11px] text-sumi focus:outline-none focus:border-shuiro"
                   />
                 </div>
 
