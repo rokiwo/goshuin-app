@@ -53,7 +53,11 @@ export default defineConfig({
         ]
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
             // Google Maps タイルのキャッシュ設定

@@ -205,8 +205,30 @@ function AppContent({ activeTab, setActiveTab }) {
     [visitRecords]
   );
 
-  // 起動時および画面復帰時に夫婦の合言葉が設定されていれば自動でクラウド同期
+  // 起動時および画面復帰時に最新ServiceWorkerの即時適用＆夫婦クラウド同期を自動実行
   useEffect(() => {
+    try {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          regs.forEach((reg) => {
+            reg.update();
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+
     if (getSavedCouplePasscode()) {
       syncCoupleGoshuinData()
         .then((res) => {
