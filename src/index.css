@@ -20,6 +20,14 @@
   scrollbar-width: none;
 }
 
+/* iPhone (iOS) ノッチ・Dynamic Island・ホームバーのセーフエリア対応 */
+.safe-top-header {
+  padding-top: max(0.625rem, calc(env(safe-area-inset-top, 0px) + 0.35rem));
+}
+.safe-bottom-nav {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
 /* 和紙テクスチャ風の微細な背景パターン */
 .washi-pattern {
   background-color: #fcfaf2;
