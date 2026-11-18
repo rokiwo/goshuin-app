@@ -40,6 +40,7 @@ import {
   saveFavoriteSpot,
   removeFavoriteSpot,
   extractPrefectureFromSpot,
+  parseVisitedDateKey,
   ALL_PREFECTURES
 } from '../db/database.js';
 import {
@@ -426,35 +427,24 @@ export default function SpotBottomSheet({
 
       {/* ボトムシート本体（スマホ幅最適化） */}
       <div className="relative z-10 w-full max-w-[430px] max-h-[89vh] washi-pattern rounded-t-3xl border-t-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
-        {/* 上部ドラッグバー＆ヘッダー */}
-        <div className="pt-2.5 pb-3 px-5 bg-washi/95 border-b border-washi-border shrink-0">
-          <div className="w-12 h-1.5 bg-sumi/20 rounded-full mx-auto mb-3" />
+        {/* 上部ドラッグバー＆ヘッダー（余分な空白をなくし、寺社名を横幅いっぱいで綺麗に表示） */}
+        <div className="pt-2 pb-2.5 px-4 bg-washi/95 border-b border-washi-border shrink-0">
+          <div className="w-10 h-1 bg-sumi/20 rounded-full mx-auto mb-2" />
 
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold text-washi ${
-                    isShrine ? 'bg-shuiro' : 'bg-tera'
-                  }`}
-                >
-                  {isShrine ? '神社' : '寺院'}
+          {/* 1行目：種別・距離 ＆ 右側の「★お気に入り」「閉じる」ボタン */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold text-washi whitespace-nowrap shrink-0 ${
+                  isShrine ? 'bg-shuiro' : 'bg-tera'
+                }`}
+              >
+                {isShrine ? '神社' : '寺院'}
+              </span>
+              {spot.distanceKm != null && (
+                <span className="text-[11px] font-semibold text-kin-dark whitespace-nowrap">
+                  現在地から {spot.distanceKm}km
                 </span>
-                <span className="text-xs font-medium text-sumi-muted">
-                  {spot.denomination}
-                </span>
-                {spot.distanceKm != null && (
-                  <span className="text-xs font-semibold text-kin-dark">
-                    現在地から {spot.distanceKm}km
-                  </span>
-                )}
-              </div>
-
-              <h2 className="font-serif font-black text-xl text-sumi tracking-wide">
-                {spot.name}
-              </h2>
-              {spot.reading && (
-                <p className="text-[11px] text-sumi-muted">{spot.reading}</p>
               )}
             </div>
 
@@ -469,7 +459,7 @@ export default function SpotBottomSheet({
                     await saveFavoriteSpot(spot);
                   }
                 }}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-serif font-bold transition active:scale-95 border ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-serif font-bold transition active:scale-95 border whitespace-nowrap ${
                   favoriteRecord
                     ? 'bg-amber-500 text-white border-amber-600 shadow'
                     : 'bg-washi hover:bg-amber-50 text-sumi border-kin/60'
@@ -477,7 +467,7 @@ export default function SpotBottomSheet({
                 title="お気に入りに登録して都道府県別一覧＆最適ルート作成に追加"
               >
                 <Star
-                  className={`w-4 h-4 ${
+                  className={`w-3.5 h-3.5 shrink-0 ${
                     favoriteRecord ? 'fill-white text-white' : 'text-amber-500'
                   }`}
                 />
@@ -487,28 +477,40 @@ export default function SpotBottomSheet({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sumi/10 hover:bg-sumi/20 text-sumi text-xs font-serif font-bold transition active:scale-95 border border-sumi/20"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-sumi/10 hover:bg-sumi/20 text-sumi text-[11px] font-serif font-bold transition active:scale-95 border border-sumi/20 whitespace-nowrap"
                 title="閉じる"
               >
                 <span>閉じる</span>
-                <X className="w-4 h-4 text-sumi" />
+                <X className="w-3.5 h-3.5 text-sumi shrink-0" />
               </button>
             </div>
           </div>
 
+          {/* 2行目：横幅いっぱいで寺社名・読み・宗派をスッキリ表示 */}
+          <div className="mt-1.5 w-full">
+            <h2 className="font-serif font-black text-lg text-sumi tracking-wide leading-snug">
+              {spot.name}
+            </h2>
+            {(spot.reading || spot.denomination) && (
+              <p className="text-[11px] text-sumi-muted leading-snug mt-0.5">
+                {[spot.reading, spot.denomination].filter(Boolean).join(' ・ ')}
+              </p>
+            )}
+          </div>
+
           {/* お気に入り登録時の都道府県セレクター */}
           {favoriteRecord && (
-            <div className="mt-2.5 pt-2 border-t border-kin/30 flex items-center justify-between gap-2 text-xs">
-              <span className="text-[11px] font-serif font-bold text-amber-700 flex items-center gap-1">
-                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                お気に入り登録県（県別ルート作成用）:
+            <div className="mt-2 pt-1.5 border-t border-kin/30 flex items-center justify-between gap-2 text-xs">
+              <span className="text-[11px] font-serif font-bold text-amber-700 flex items-center gap-1 whitespace-nowrap">
+                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500 shrink-0" />
+                <span>お気に入り登録県:</span>
               </span>
               <select
                 value={favoriteRecord.prefecture || extractPrefectureFromSpot(spot)}
                 onChange={(e) => {
                   saveFavoriteSpot(spot, { prefecture: e.target.value });
                 }}
-                className="rounded-lg border border-amber-500/50 bg-washi px-2 py-1 text-xs font-serif font-bold text-sumi focus:outline-none"
+                className="rounded-lg border border-amber-500/50 bg-washi px-2 py-0.5 text-xs font-serif font-bold text-sumi focus:outline-none"
               >
                 {ALL_PREFECTURES.map((pref) => (
                   <option key={pref} value={pref}>
@@ -520,34 +522,34 @@ export default function SpotBottomSheet({
           )}
         </div>
 
-        {/* スクロール可能なコンテンツ領域 */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        {/* スクロール可能なコンテンツ領域（1番上に御朱印・写真、その下にステータス） */}
+        <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-4">
           {aiError && (
             <div className="p-3 rounded-xl bg-shuiro-light border border-shuiro text-xs text-shuiro font-medium">
               {aiError}
             </div>
           )}
 
-          {/* ★同じ神社・お寺でいただいた御朱印の複数管理タブ＆新規追加 */}
-          <div className="rounded-2xl bg-washi border border-kin/50 p-2.5 shadow-sm space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-serif font-bold text-sumi flex items-center gap-1">
-                <Book className="w-3.5 h-3.5 text-shuiro" />
-                この社寺の御朱印記録 ({placeVisits.length}枚)
+          {/* ★1. まず最初に御朱印（複数枚切替タブ ＆ 自分が頂いた御朱印写真／登録エリア）を表示 */}
+          <div className="rounded-2xl bg-washi border border-kin/50 p-3 shadow-sm space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-serif font-bold text-sumi flex items-center gap-1.5">
+                <Book className="w-4 h-4 text-shuiro shrink-0" />
+                <span>この社寺の御朱印 ({placeVisits.length}枚)</span>
               </span>
               <button
                 type="button"
                 onClick={handleAddNewEntryForSameSpot}
-                className="px-2.5 py-1 rounded-xl bg-shuiro/10 hover:bg-shuiro/20 text-shuiro border border-shuiro/40 text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition"
+                className="px-2.5 py-1 rounded-xl bg-shuiro/10 hover:bg-shuiro/20 text-shuiro border border-shuiro/40 text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition whitespace-nowrap shrink-0"
                 title="同じ神社・お寺で別の御朱印（限定御朱印や別日付）を追加"
               >
                 <PlusCircle className="w-3 h-3 text-shuiro" />
-                <span>＋ 別の御朱印を追加</span>
+                <span>別の御朱印を追加</span>
               </button>
             </div>
 
             {placeVisits.length > 1 && (
-              <div className="flex gap-1.5 overflow-x-auto no-scrollbar pt-1">
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
                 {placeVisits.map((v, idx) => {
                   const isCur = v.spotId === selectedEntryId;
                   const label = v.memo ? `「${v.memo.slice(0, 6)}」` : `御朱印 ${idx + 1}`;
@@ -569,16 +571,152 @@ export default function SpotBottomSheet({
                 })}
               </div>
             )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoUpload}
+              className="hidden"
+            />
+
+            {photoDataUrl ? (
+              <div className="space-y-2.5">
+                <div
+                  onClick={() => setIsLightboxOpen(true)}
+                  className="relative w-full max-h-60 rounded-xl overflow-hidden bg-washi-dark border border-kin/50 flex items-center justify-center p-1.5 shadow-inner cursor-zoom-in group"
+                  title="タップして御朱印をアップで拡大表示"
+                >
+                  <img
+                    src={photoDataUrl}
+                    alt={`${spot.name}の御朱印写真`}
+                    className="w-full max-h-56 object-contain rounded-lg group-hover:scale-[1.02] transition"
+                  />
+                  <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-full bg-sumi/85 text-kin border border-kin/50 text-[10px] font-serif font-bold flex items-center gap-1 shadow">
+                    <ZoomIn className="w-3 h-3" />
+                    <span>タップで拡大</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      disabled={isRotating}
+                      onClick={handleRotatePhoto90}
+                      className="px-2.5 py-1 rounded-lg bg-washi-dark border border-kin/60 text-sumi font-serif font-bold text-[11px] flex items-center gap-1 shadow-sm active:scale-95 transition"
+                    >
+                      <RotateCw
+                        className={`w-3 h-3 text-shuiro ${
+                          isRotating ? 'animate-spin' : ''
+                        }`}
+                      />
+                      <span>90°回転</span>
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-2.5 py-1 rounded-lg bg-sumi text-washi text-[11px] font-bold flex items-center gap-1"
+                      >
+                        <Camera className="w-3 h-3 text-kin" />
+                        <span>写真変更</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRemovePhoto}
+                        className="text-[11px] text-shuiro flex items-center gap-0.5 hover:underline"
+                      >
+                        <Trash2 className="w-3 h-3" /> 削除
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isAnalyzingPhoto}
+                    onClick={handleAnalyzePhotoWithAi}
+                    className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-shuiro to-shuiro-dark text-washi text-xs font-serif font-bold flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition disabled:opacity-60"
+                  >
+                    {isAnalyzingPhoto ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-kin" />
+                        <span>AIが墨書・朱印を鑑定中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-3.5 h-3.5 text-kin" />
+                        <span>{aiPhotoAnalysis ? 'AIで再鑑定する' : 'AIで御朱印の文字を解読'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {aiPhotoAnalysis && (
+                  <div className="rounded-2xl bg-washi-dark/60 border border-kin p-3 shadow-sm space-y-2 text-xs">
+                    <div className="flex items-center justify-between border-b border-washi-border pb-1.5">
+                      <span className="font-serif font-black text-xs text-sumi flex items-center gap-1.5">
+                        <BookOpenCheck className="w-4 h-4 text-shuiro" />
+                        Gemini AI 御朱印鑑定書
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-kin/20 text-kin-dark font-bold">
+                        端末保存済
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="font-bold text-shuiro">【墨書（揮毫）の解読】</span>
+                      <p className="text-sumi mt-0.5 leading-relaxed">
+                        {aiPhotoAnalysis.calligraphyReading}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-bold text-kin-dark">【朱印・印章の読み取り】</span>
+                      <p className="text-sumi mt-0.5 leading-relaxed">
+                        {aiPhotoAnalysis.sealReading}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-bold text-tera">【言葉の意味・ご利益】</span>
+                      <p className="text-sumi mt-0.5 leading-relaxed">
+                        {aiPhotoAnalysis.meaningAndBlessing}
+                      </p>
+                    </div>
+                    <div className="pt-1 border-t border-washi-border text-[11px] text-sumi-muted italic">
+                      書風評: {aiPhotoAnalysis.artisticImpression}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3.5 px-4 rounded-2xl border-2 border-dashed border-kin bg-washi-dark/40 hover:bg-washi-dark/70 transition flex flex-col items-center justify-center gap-1 shadow-sm active:scale-[0.99]"
+              >
+                <div className="w-9 h-9 rounded-full bg-shuiro/10 text-shuiro flex items-center justify-center">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <span className="font-serif font-bold text-xs text-sumi">
+                  {isUploading ? '写真を圧縮・保存中...' : '自分が頂いた御朱印写真を登録する'}
+                </span>
+                <span className="text-[10px] text-sumi-muted">
+                  カメラ撮影またはアルバムから選択（登録後にAI文字解読可）
+                </span>
+              </button>
+            )}
           </div>
 
-          {/* 参拝チェック・過去日付設定＆朱色落款印スタンプエリア */}
-          <div className="relative rounded-2xl bg-washi-dark/80 border border-kin/40 p-4 shadow-inner overflow-hidden space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold text-sumi-muted mb-0.5">
+          {/* ★2. その下に参拝ステータス・日付・実物御朱印帳・巡拝グループ */}
+          <div className="relative rounded-2xl bg-washi-dark/80 border border-kin/40 p-3.5 shadow-inner overflow-hidden space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-sumi-muted mb-0.5">
                   参拝ステータス
                 </p>
-                <p className="font-serif font-bold text-sm text-sumi">
+                <p className="font-serif font-bold text-xs sm:text-sm text-sumi">
                   {isVisited
                     ? `参拝済み（${visitedDateText}）`
                     : 'まだ参拝記録がありません'}
@@ -588,25 +726,29 @@ export default function SpotBottomSheet({
               <button
                 type="button"
                 onClick={handleToggleVisited}
-                className={`px-4 py-2.5 rounded-xl font-serif font-bold text-sm flex items-center gap-2 shadow-md transition active:scale-95 ${
+                className={`px-3 py-2 rounded-xl font-serif font-bold text-xs flex items-center gap-1.5 shadow-md transition active:scale-95 shrink-0 whitespace-nowrap ${
                   isVisited
                     ? 'bg-shuiro text-washi border border-shuiro-dark'
                     : 'bg-sumi text-kin border border-kin/50 hover:bg-sumi-light'
                 }`}
               >
-                <Stamp className="w-4 h-4" />
-                {isVisited ? '参拝済み（解除可）' : '参拝済みにする'}
+                <Stamp className="w-3.5 h-3.5 shrink-0" />
+                <span>{isVisited ? '参拝済（解除）' : '参拝済にする'}</span>
               </button>
             </div>
 
             {/* 参拝日（過去の日付変更）ピッカー */}
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-washi-border text-xs">
-              <span className="font-serif font-bold text-sumi flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-shuiro" />
-                参拝日を指定（過去の参拝も可）:
+              <span className="font-serif font-bold text-sumi flex items-center gap-1 whitespace-nowrap">
+                <Calendar className="w-3.5 h-3.5 text-shuiro shrink-0" />
+                <span>参拝日を指定:</span>
               </span>
               <input
                 type="date"
+                value={(() => {
+                  const k = parseVisitedDateKey({ visitedDate: visitedDateText });
+                  return k && k !== '9999-12-31' ? k : '';
+                })()}
                 onChange={handleDatePickerChange}
                 className="rounded-lg border border-kin/50 bg-washi px-2.5 py-1 text-xs text-sumi focus:outline-none focus:border-shuiro"
               />
@@ -639,7 +781,7 @@ export default function SpotBottomSheet({
 
             {/* ★巡拝グループ（例: 生田裔神八社めぐり、七福神めぐり など）の指定 */}
             <div className="pt-2 border-t border-washi-border space-y-1.5 text-xs">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <label className="font-serif font-bold text-sumi flex items-center gap-1.5">
                   <Tag className="w-3.5 h-3.5 text-shuiro" />
                   巡拝グループ（八社めぐり等）:
@@ -715,21 +857,18 @@ export default function SpotBottomSheet({
             {isVisited && (
               <div
                 key={justStamped ? 'stamped-fresh' : 'stamped-static'}
-                className={`space-y-2.5 p-2.5 rounded-xl bg-shuiro-light border border-shuiro/30 ${
+                className={`space-y-2 p-2.5 rounded-xl bg-shuiro-light border border-shuiro/30 ${
                   justStamped ? 'animate-stamp-pop' : ''
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-lg border-2 border-shuiro flex flex-col items-center justify-center bg-washi text-shuiro font-serif font-black leading-none shrink-0 shadow-sm rotate-[-8deg]">
-                    <span className="text-[10px]">奉拝</span>
-                    <span className="text-sm mt-0.5">参拝済</span>
+                  <div className="w-11 h-11 rounded-lg border-2 border-shuiro flex flex-col items-center justify-center bg-washi text-shuiro font-serif font-black leading-none shrink-0 shadow-sm rotate-[-8deg]">
+                    <span className="text-[9px]">奉拝</span>
+                    <span className="text-xs mt-0.5">参拝済</span>
                   </div>
                   <div className="text-xs text-sumi flex-1">
                     <p className="font-serif font-bold text-shuiro">
                       御朱印帳に参拝印が刻まれました（{visitedDateText}）
-                    </p>
-                    <p className="text-[11px] text-sumi-muted mt-0.5">
-                      御朱印の写真を登録すると、Gemini 3.8 Flashで墨書の意味も解読できます。
                     </p>
                   </div>
                 </div>
@@ -738,164 +877,13 @@ export default function SpotBottomSheet({
                   <button
                     type="button"
                     onClick={handleDeleteCurrentEntry}
-                    className="px-3 py-1.5 rounded-lg bg-washi hover:bg-shuiro hover:text-washi text-shuiro border border-shuiro/40 text-xs font-serif font-bold flex items-center gap-1.5 transition active:scale-95"
+                    className="px-3 py-1 rounded-lg bg-washi hover:bg-shuiro hover:text-washi text-shuiro border border-shuiro/40 text-[11px] font-serif font-bold flex items-center gap-1 transition active:scale-95"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3 h-3" />
                     <span>この御朱印記録を削除する</span>
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* 自分の御朱印写真を登録＆AI墨書鑑定 */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <h3 className="font-serif font-bold text-sm text-sumi flex items-center gap-1.5">
-                <Camera className="w-4 h-4 text-shuiro" />
-                自分が頂いた御朱印写真（端末保存＆AI鑑定）
-              </h3>
-              {photoDataUrl && (
-                <button
-                  type="button"
-                  onClick={handleRemovePhoto}
-                  className="text-xs text-shuiro flex items-center gap-1 hover:underline"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> 写真を削除
-                </button>
-              )}
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoUpload}
-              className="hidden"
-            />
-
-            {photoDataUrl ? (
-              <div className="space-y-3">
-                <div className="jabara-card p-3 rounded-2xl space-y-2.5">
-                  <div
-                    onClick={() => setIsLightboxOpen(true)}
-                    className="relative w-full max-h-56 rounded-xl overflow-hidden bg-washi-dark border border-kin/50 flex items-center justify-center p-1.5 shadow-inner cursor-zoom-in group"
-                    title="タップして御朱印をアップで拡大表示"
-                  >
-                    <img
-                      src={photoDataUrl}
-                      alt={`${spot.name}の御朱印写真`}
-                      className="w-full max-h-52 object-contain rounded-lg group-hover:scale-[1.02] transition"
-                    />
-                    <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-full bg-sumi/85 text-kin border border-kin/50 text-[10px] font-serif font-bold flex items-center gap-1 shadow">
-                      <ZoomIn className="w-3 h-3" />
-                      <span>タップでアップ表示</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-kin/20 text-kin-dark text-[11px] font-bold">
-                        <Sparkles className="w-3 h-3" /> マイ御朱印帳に登録済
-                      </span>
-                      <button
-                        type="button"
-                        disabled={isRotating}
-                        onClick={handleRotatePhoto90}
-                        className="px-2.5 py-1 rounded-lg bg-washi border border-kin text-sumi font-serif font-bold text-[11px] flex items-center gap-1 shadow-sm active:scale-95 transition"
-                      >
-                        <RotateCw
-                          className={`w-3 h-3 text-shuiro ${
-                            isRotating ? 'animate-spin' : ''
-                          }`}
-                        />
-                        <span>90°回転（見開き横向き）</span>
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={isAnalyzingPhoto}
-                      onClick={handleAnalyzePhotoWithAi}
-                      className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-shuiro to-shuiro-dark text-washi text-xs font-serif font-bold flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition disabled:opacity-60"
-                    >
-                      {isAnalyzingPhoto ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-kin" />
-                          AIが墨書・朱印を鑑定中...
-                        </>
-                      ) : (
-                        <>
-                          <Wand2 className="w-3.5 h-3.5 text-kin" />
-                          {aiPhotoAnalysis ? 'AIで再鑑定する' : 'AIで御朱印の文字を解読'}
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-1.5 px-3 rounded-xl bg-sumi text-washi text-[11px] font-bold flex items-center justify-center gap-1.5"
-                    >
-                      <Camera className="w-3 h-3 text-kin" />
-                      別の写真に変更
-                    </button>
-                  </div>
-                </div>
-
-                {aiPhotoAnalysis && (
-                  <div className="rounded-2xl bg-washi border-2 border-kin p-3.5 shadow-md space-y-2 text-xs">
-                    <div className="flex items-center justify-between border-b border-washi-border pb-2">
-                      <span className="font-serif font-black text-sm text-sumi flex items-center gap-1.5">
-                        <BookOpenCheck className="w-4 h-4 text-shuiro" />
-                        Gemini AI 御朱印鑑定書
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-kin/20 text-kin-dark font-bold">
-                        端末保存済
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="font-bold text-shuiro">【墨書（揮毫）の解読】</span>
-                      <p className="text-sumi mt-0.5 leading-relaxed">
-                        {aiPhotoAnalysis.calligraphyReading}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="font-bold text-kin-dark">【朱印・印章の読み取り】</span>
-                      <p className="text-sumi mt-0.5 leading-relaxed">
-                        {aiPhotoAnalysis.sealReading}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="font-bold text-tera">【言葉の意味・ご利益】</span>
-                      <p className="text-sumi mt-0.5 leading-relaxed">
-                        {aiPhotoAnalysis.meaningAndBlessing}
-                      </p>
-                    </div>
-                    <div className="pt-1 border-t border-washi-border text-[11px] text-sumi-muted italic">
-                      書風評: {aiPhotoAnalysis.artisticImpression}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                type="button"
-                disabled={isUploading}
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full py-4 px-4 rounded-2xl border-2 border-dashed border-kin bg-washi hover:bg-washi-dark/60 transition flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-[0.99]"
-              >
-                <div className="w-10 h-10 rounded-full bg-shuiro/10 text-shuiro flex items-center justify-center">
-                  <Camera className="w-5 h-5" />
-                </div>
-                <span className="font-serif font-bold text-sm text-sumi">
-                  {isUploading ? '写真を圧縮・保存中...' : '自分の御朱印写真を登録する'}
-                </span>
-                <span className="text-[11px] text-sumi-muted">
-                  カメラ撮影またはアルバムから選択（登録後にAI墨書解読も使えます）
-                </span>
-              </button>
             )}
           </div>
 
