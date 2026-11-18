@@ -113,7 +113,7 @@ export default function GoshuinPhotoLightbox({ record, onClose }) {
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[70] bg-sumi/95 backdrop-blur-md flex flex-col justify-between p-3 sm:p-5 select-none animate-slide-up"
+      className="fixed inset-0 z-[70] bg-sumi/95 backdrop-blur-md flex flex-col justify-between px-3 pb-3 sm:px-5 sm:pb-5 safe-top-overlay safe-bottom-nav select-none animate-slide-up"
     >
       {/* 上部ヘッダーバー */}
       <div

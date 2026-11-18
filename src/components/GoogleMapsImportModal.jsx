@@ -163,7 +163,7 @@ export default function GoogleMapsImportModal({
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-sm animate-fade-in">
       <div className="absolute inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-[430px] max-h-[89vh] washi-pattern rounded-t-3xl sm:rounded-3xl border-2 border-kin shadow-2xl flex flex-col overflow-hidden animate-slide-up">
+      <div className="relative z-10 w-full max-w-[430px] max-h-[89vh] safe-modal-sheet washi-pattern rounded-t-3xl sm:rounded-3xl border-2 border-kin shadow-2xl flex flex-col overflow-hidden animate-slide-up">
         {/* ヘッダー */}
         <div className="bg-sumi text-washi px-4 py-3 border-b border-kin/40 flex items-center justify-between gap-2 shrink-0">
           <button

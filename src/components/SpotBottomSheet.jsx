@@ -426,7 +426,7 @@ export default function SpotBottomSheet({
       <div className="absolute inset-0" onClick={onClose} />
 
       {/* ボトムシート本体（スマホ幅最適化） */}
-      <div className="relative z-10 w-full max-w-[430px] max-h-[89vh] washi-pattern rounded-t-3xl border-t-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
+      <div className="relative z-10 w-full max-w-[430px] max-h-[89vh] safe-modal-sheet washi-pattern rounded-t-3xl border-t-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
         {/* 上部ドラッグバー＆ヘッダー（余分な空白をなくし、寺社名を横幅いっぱいで綺麗に表示） */}
         <div className="pt-2 pb-2.5 px-4 bg-washi/95 border-b border-washi-border shrink-0">
           <div className="w-10 h-1 bg-sumi/20 rounded-full mx-auto mb-2" />

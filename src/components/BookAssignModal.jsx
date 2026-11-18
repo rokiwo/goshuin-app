@@ -88,7 +88,7 @@ export default function BookAssignModal({
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-sumi/75 backdrop-blur-sm p-0 sm:p-4">
       <div className="absolute inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-[440px] max-h-[90vh] washi-pattern rounded-t-3xl sm:rounded-3xl border-t-2 sm:border-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
+      <div className="relative z-10 w-full max-w-[440px] max-h-[90vh] safe-modal-sheet washi-pattern rounded-t-3xl sm:rounded-3xl border-t-2 sm:border-2 border-kin shadow-2xl flex flex-col animate-slide-up overflow-hidden">
         {/* スマホ用グラブバー */}
         <div className="w-full flex justify-center pt-2 pb-1 bg-sumi sm:hidden">
           <div className="w-12 h-1 rounded-full bg-washi/30" />

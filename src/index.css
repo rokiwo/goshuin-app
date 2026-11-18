@@ -20,19 +20,35 @@
   scrollbar-width: none;
 }
 
-/* Android PWA はステータスバー直下から始まるため上端ギリギリまで詰め、iPhone (iOS) のノッチ/Dynamic Island のみセーフエリアを確保 */
+/* 端末別セーフエリア最適化（Android は上端ギリギリまで詰め、iPhone はノッチ/Dynamic Island 下まで確実に安全余白を取る） */
 .safe-top-header {
-  padding-top: max(0.2rem, calc(env(safe-area-inset-top, 0px) + 0.15rem));
+  padding-top: max(0.2rem, calc(env(safe-area-inset-top, 0px) + 0.12rem));
+}
+.safe-top-overlay {
+  padding-top: max(0.75rem, calc(env(safe-area-inset-top, 0px) + 0.5rem));
 }
 .safe-bottom-nav {
   padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
 }
-@supports (-webkit-touch-callout: none) {
-  @media all and (display-mode: standalone), all and (display-mode: fullscreen) {
-    .safe-top-header {
-      padding-top: max(1.1rem, calc(env(safe-area-inset-top, 0px) + 0.25rem));
-    }
-  }
+
+/* iPhone (iOS) 専用：上部がステータスバー/Dynamic Islandに重なって触れなくなる問題を完全防止 */
+html[data-platform="ios"] .safe-top-header {
+  padding-top: max(0.75rem, calc(env(safe-area-inset-top, 0px) + 0.45rem));
+}
+html[data-platform="ios"][data-standalone="true"] .safe-top-header {
+  padding-top: max(3.85rem, calc(env(safe-area-inset-top, 54px) + 0.65rem));
+}
+html[data-platform="ios"] .safe-top-overlay {
+  padding-top: max(1rem, calc(env(safe-area-inset-top, 0px) + 0.5rem));
+}
+html[data-platform="ios"][data-standalone="true"] .safe-top-overlay {
+  padding-top: max(3.85rem, calc(env(safe-area-inset-top, 54px) + 0.65rem));
+}
+html[data-platform="ios"] .safe-bottom-nav {
+  padding-bottom: max(0.6rem, env(safe-area-inset-bottom, 0px));
+}
+html[data-platform="ios"] .safe-modal-sheet {
+  max-height: calc(100dvh - max(4.25rem, calc(env(safe-area-inset-top, 48px) + 1rem))) !important;
 }
 
 /* 和紙テクスチャ風の微細な背景パターン */

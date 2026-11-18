@@ -24,8 +24,10 @@ import {
   useBackHandler,
   useBackHandlerContext
 } from './contexts/BackHandlerContext.jsx';
+import { isIOSDevice } from './utils/platform.js';
 
 function AppContent({ activeTab, setActiveTab }) {
+  const isIOS = React.useMemo(() => isIOSDevice(), []);
 
   // モーダル開閉ステート
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -355,10 +357,67 @@ function AppContent({ activeTab, setActiveTab }) {
     loadNearbySpots(userLocation.lat, userLocation.lng);
   };
 
+  // 共通アクションボタン群（Androidは上部バナーに配置、iPhoneは上部誤タップ・触れなくなる問題防止のため下部ドックに配置）
+  const actionButtonsRow = (
+    <div className="grid grid-cols-4 gap-1.5">
+      {/* 過去の御朱印追加ボタン */}
+      <button
+        type="button"
+        onClick={() => setIsAddPastModalOpen(true)}
+        className="py-1.5 px-2 rounded-xl bg-shuiro border border-kin/60 text-washi text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition shadow whitespace-nowrap"
+        title="過去の御朱印を写真・日付・場所で登録"
+      >
+        <PlusCircle className="w-3 h-3 text-kin shrink-0" />
+        <span>追加</span>
+      </button>
+
+      {/* データ移行・バックアップボタン */}
+      <button
+        type="button"
+        onClick={() => setIsBackupModalOpen(true)}
+        className="py-1.5 px-2 rounded-xl border border-kin/45 bg-sumi-light text-kin text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition shadow whitespace-nowrap"
+        title="データ移行・バックアップの書き出し＆復元"
+      >
+        <HardDrive className="w-3 h-3 text-kin shrink-0" />
+        <span>移行</span>
+      </button>
+
+      {/* 夫婦共有ボタン */}
+      <button
+        type="button"
+        onClick={() => setIsCoupleModalOpen(true)}
+        className={`py-1.5 px-2 rounded-xl border text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition whitespace-nowrap ${
+          isCoupleConnected
+            ? 'bg-[#b84a62] border-pink-200 text-white shadow'
+            : 'bg-sumi-light border-pink-300/40 text-pink-200'
+        }`}
+        title="夫婦の合言葉で共有・同期"
+      >
+        <Heart className={`w-3 h-3 shrink-0 ${isCoupleConnected ? 'fill-pink-200 text-pink-200' : ''}`} />
+        <span>{isCoupleConnected ? '共有中' : '夫婦共有'}</span>
+      </button>
+
+      {/* AI設定ボタン */}
+      <button
+        type="button"
+        onClick={() => setIsAiModalOpen(true)}
+        className={`py-1.5 px-2 rounded-xl border text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition whitespace-nowrap ${
+          hasApiKey
+            ? 'bg-kin/15 border-kin text-kin'
+            : 'bg-sumi-light border-washi/30 text-washi/80'
+        }`}
+        title="Gemini AI設定"
+      >
+        <KeyRound className="w-3 h-3 shrink-0" />
+        <span>{hasApiKey ? 'AI済' : 'AI設定'}</span>
+      </button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen w-full bg-sumi flex justify-center">
       <div className="w-full max-w-[430px] h-[100dvh] bg-washi flex flex-col shadow-2xl relative overflow-hidden border-x border-kin/20">
-        {/* 和モダン上部ヘッダー（2段構成：上段にタイトル・件数、下段に4ボタンでスマホでも絶対に崩れないレイアウト） */}
+        {/* 和モダン上部ヘッダー（Androidは上端ギリギリ＋4ボタン上配置 / iPhoneはタイトルのみで上部干渉を回避） */}
         <header className="bg-sumi text-washi px-3 pb-1.5 safe-top-header border-b border-kin/40 flex flex-col gap-1 shrink-0 z-30">
           {/* 上段：アプリアイコン＋横1行タイトル＋周辺社寺ステータス */}
           <div className="flex items-center justify-between gap-2 min-w-0">
@@ -376,60 +435,8 @@ function AppContent({ activeTab, setActiveTab }) {
             </p>
           </div>
 
-          {/* 下段：アクションボタン4つ（均等4列グリッドでスッキリ配置） */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {/* 過去の御朱印追加ボタン */}
-            <button
-              type="button"
-              onClick={() => setIsAddPastModalOpen(true)}
-              className="py-1.5 px-2 rounded-xl bg-shuiro border border-kin/60 text-washi text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition shadow whitespace-nowrap"
-              title="過去の御朱印を写真・日付・場所で登録"
-            >
-              <PlusCircle className="w-3 h-3 text-kin shrink-0" />
-              <span>追加</span>
-            </button>
-
-            {/* データ移行・バックアップボタン */}
-            <button
-              type="button"
-              onClick={() => setIsBackupModalOpen(true)}
-              className="py-1.5 px-2 rounded-xl border border-kin/45 bg-sumi-light text-kin text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition shadow whitespace-nowrap"
-              title="データ移行・バックアップの書き出し＆復元"
-            >
-              <HardDrive className="w-3 h-3 text-kin shrink-0" />
-              <span>移行</span>
-            </button>
-
-            {/* 夫婦共有ボタン */}
-            <button
-              type="button"
-              onClick={() => setIsCoupleModalOpen(true)}
-              className={`py-1.5 px-2 rounded-xl border text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition whitespace-nowrap ${
-                isCoupleConnected
-                  ? 'bg-[#b84a62] border-pink-200 text-white shadow'
-                  : 'bg-sumi-light border-pink-300/40 text-pink-200'
-              }`}
-              title="夫婦の合言葉で共有・同期"
-            >
-              <Heart className={`w-3 h-3 shrink-0 ${isCoupleConnected ? 'fill-pink-200 text-pink-200' : ''}`} />
-              <span>{isCoupleConnected ? '共有中' : '夫婦共有'}</span>
-            </button>
-
-            {/* AI設定ボタン */}
-            <button
-              type="button"
-              onClick={() => setIsAiModalOpen(true)}
-              className={`py-1.5 px-2 rounded-xl border text-[11px] font-serif font-bold flex items-center justify-center gap-1 active:scale-95 transition whitespace-nowrap ${
-                hasApiKey
-                  ? 'bg-kin/15 border-kin text-kin'
-                  : 'bg-sumi-light border-washi/30 text-washi/80'
-              }`}
-              title="Gemini AI設定"
-            >
-              <KeyRound className="w-3 h-3 shrink-0" />
-              <span>{hasApiKey ? 'AI済' : 'AI設定'}</span>
-            </button>
-          </div>
+          {/* Android・PC用：上部バナー内に4ボタンを配置 */}
+          {!isIOS && actionButtonsRow}
         </header>
 
         {/* メインコンテンツ領域 */}
@@ -492,8 +499,13 @@ function AppContent({ activeTab, setActiveTab }) {
           )}
         </main>
 
-        {/* 下部タブバー（iPhoneホームバーセーフエリア対応） */}
-        <nav className="bg-sumi text-washi border-t border-kin/40 px-3 pt-2 safe-bottom-nav shrink-0 z-30">
+        {/* 下部タブバー（iPhoneでは上部誤タップ防止のため4ボタンも下部ドックへ配置） */}
+        <nav
+          className={`bg-sumi text-washi border-t border-kin/40 px-3 safe-bottom-nav shrink-0 z-30 ${
+            isIOS ? 'pt-1.5' : 'pt-2'
+          }`}
+        >
+          {isIOS && <div className="mb-1.5">{actionButtonsRow}</div>}
           <div className="grid grid-cols-3 gap-2">
             <button
               type="button"

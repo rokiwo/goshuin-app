@@ -146,7 +146,7 @@ export default function GoshuinShowcaseModal({
       </div>
 
       {/* 上部バー：モード切替（3Dページめくり ⇔ 天空ウォール）＆閉じる */}
-      <div className="relative z-20 px-4 pt-4 pb-2 flex items-center justify-between gap-2 max-w-[430px] w-full mx-auto">
+      <div className="relative z-20 px-4 pb-2 safe-top-overlay flex items-center justify-between gap-2 max-w-[430px] w-full mx-auto">
         <div className="flex items-center bg-white/10 backdrop-blur-md p-1 rounded-full border border-kin/40 shadow-lg">
           <button
             type="button"
