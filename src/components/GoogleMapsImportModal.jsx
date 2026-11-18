@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   ArrowLeft,
@@ -12,6 +12,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import {
+  isGoogleMapsInput,
   resolveGoogleMapsShareToCandidates
 } from '../services/googleMapsShareService.js';
 import {
@@ -39,40 +40,42 @@ export default function GoogleMapsImportModal({
   const [parsedInfo, setParsedInfo] = useState(null);
   const [isResolving, setIsResolving] = useState(false);
   const [statusNote, setStatusNote] = useState('');
+  const skipNextAutoResolveRef = useRef(false);
+  const latestSpotsRef = useRef(allSpots);
+  const latestLocRef = useRef(userLocation);
+  latestSpotsRef.current = allSpots;
+  latestLocRef.current = userLocation;
 
-  const runResolve = useCallback(
-    async (payloadObj, manualOverride = '') => {
-      const hasText = Boolean(
-        payloadObj?.title || payloadObj?.text || payloadObj?.url || payloadObj?.rawText
+  const runResolve = useCallback(async (payloadObj, manualOverride = '') => {
+    const hasText = Boolean(
+      payloadObj?.title || payloadObj?.text || payloadObj?.url || payloadObj?.rawText
+    );
+    if (!hasText && !manualOverride.trim()) {
+      setCandidates([]);
+      setParsedInfo(null);
+      setNeedsManualName(false);
+      return;
+    }
+
+    setIsResolving(true);
+    setStatusNote('');
+    try {
+      const res = await resolveGoogleMapsShareToCandidates(
+        payloadObj,
+        latestSpotsRef.current,
+        latestLocRef.current,
+        manualOverride
       );
-      if (!hasText && !manualOverride.trim()) {
-        setCandidates([]);
-        setParsedInfo(null);
-        setNeedsManualName(false);
-        return;
-      }
-
-      setIsResolving(true);
-      setStatusNote('');
-      try {
-        const res = await resolveGoogleMapsShareToCandidates(
-          payloadObj,
-          allSpots,
-          userLocation,
-          manualOverride
-        );
-        setParsedInfo(res.parsed);
-        setNeedsManualName(res.needsManualName);
-        setCandidates(res.candidates || []);
-      } catch {
-        setCandidates([]);
-        setStatusNote('解析中にエラーが発生しました。神社・お寺名でも検索できます。');
-      } finally {
-        setIsResolving(false);
-      }
-    },
-    [allSpots, userLocation]
-  );
+      setParsedInfo(res.parsed);
+      setNeedsManualName(res.needsManualName);
+      setCandidates(res.candidates || []);
+    } catch {
+      setCandidates([]);
+      setStatusNote('解析中にエラーが発生しました。神社・お寺名でも検索できます。');
+    } finally {
+      setIsResolving(false);
+    }
+  }, []);
 
   // モーダルが開かれたとき・共有データが渡されたときに自動解析を実行
   useEffect(() => {
@@ -87,6 +90,7 @@ export default function GoogleMapsImportModal({
         .filter(Boolean)
         .join('\n')
         .trim();
+      skipNextAutoResolveRef.current = true;
       setRawInput(combined);
       setManualName('');
       runResolve(initialSharePayload, '');
@@ -94,6 +98,26 @@ export default function GoogleMapsImportModal({
       setStatusNote('');
     }
   }, [isOpen, initialSharePayload, runResolve]);
+
+  // 入力欄への直接ペースト／手入力時も自動で解析・候補表示
+  useEffect(() => {
+    if (!isOpen) return;
+    if (skipNextAutoResolveRef.current) {
+      skipNextAutoResolveRef.current = false;
+      return;
+    }
+    const trimmedRaw = rawInput.trim();
+    const trimmedManual = manualName.trim();
+    if (!trimmedRaw && trimmedManual.length < 2) return;
+    if (!isGoogleMapsInput(trimmedRaw) && trimmedRaw.length < 2 && trimmedManual.length < 2) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      runResolve({ rawText: trimmedRaw }, trimmedManual);
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [isOpen, rawInput, manualName, runResolve]);
 
   if (!isOpen) return null;
 
@@ -109,6 +133,7 @@ export default function GoogleMapsImportModal({
         setStatusNote('クリップボードが空でした。本家Googleマップでリンクをコピーしてからお試しください。');
         return;
       }
+      skipNextAutoResolveRef.current = true;
       setRawInput(clip.trim());
       setManualName('');
       runResolve({ rawText: clip.trim() }, '');
@@ -247,6 +272,7 @@ export default function GoogleMapsImportModal({
                 </p>
                 <input
                   type="text"
+                  autoFocus
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
                   placeholder="例: 生田神社、京都 八坂神社"

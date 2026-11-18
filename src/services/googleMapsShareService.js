@@ -3,6 +3,7 @@
 
 import { DEFAULT_CENTER } from '../data/seedSpots.js';
 import { ALL_PREFECTURES, extractPrefectureFromSpot } from '../db/database.js';
+import { getGeminiApiKey, getGeminiModel } from './geminiService.js';
 import {
   searchShrineCandidatesByName,
   inferSpotTypeFromName,
@@ -12,7 +13,7 @@ import {
 } from './shrineSearchService.js';
 
 const GOOGLE_MAPS_URL_REGEX =
-  /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.|maps\.)?google\.(?:com|co\.jp)\/maps)\S*/i;
+  /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|share\.google|g\.co\/kgs|maps\.google\.(?:com|co\.jp)|(?:www\.)?google\.(?:com|co\.jp)\/maps)\S*/i;
 
 /**
  * 入力文字列に本家GoogleマップのURLまたは共有リンクが含まれるか判定
@@ -39,7 +40,12 @@ function parseSingleGoogleMapsUrl(urlStr) {
     const host = parsedUrl.hostname.toLowerCase();
     const fullPath = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
 
-    if (host.includes('maps.app.goo.gl') || (host.includes('goo.gl') && parsedUrl.pathname.startsWith('/maps'))) {
+    if (
+      host.includes('maps.app.goo.gl') ||
+      host.includes('share.google') ||
+      (host.includes('goo.gl') && parsedUrl.pathname.startsWith('/maps')) ||
+      (host.includes('g.co') && parsedUrl.pathname.startsWith('/kgs'))
+    ) {
       result.isShortUrl = true;
     }
 
@@ -57,10 +63,12 @@ function parseSingleGoogleMapsUrl(urlStr) {
       }
     }
 
-    // 2. /maps/place/場所名/... から名前と住所部分を抽出
-    const placeMatch = parsedUrl.pathname.match(/\/place\/([^/@]+)/);
-    if (placeMatch && placeMatch[1]) {
-      const decoded = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim();
+    // 2. /maps/place/場所名/... または /maps/search/検索語/... または /maps/dir//目的地/... を抽出
+    const placeOrSearchMatch =
+      parsedUrl.pathname.match(/\/(?:place|search)\/([^/@?#]+)/) ||
+      parsedUrl.pathname.match(/\/dir\/[^/]*\/([^/@?#]+)/);
+    if (placeOrSearchMatch && placeOrSearchMatch[1]) {
+      const decoded = decodeURIComponent(placeOrSearchMatch[1].replace(/\+/g, ' ')).trim();
       const coordOnly = decoded.match(/^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/);
       if (coordOnly) {
         if (result.lat == null) {
@@ -76,8 +84,13 @@ function parseSingleGoogleMapsUrl(urlStr) {
       }
     }
 
-    // 3. ?q=... または ?query=... パラメータを抽出
-    const qParam = (parsedUrl.searchParams.get('q') || parsedUrl.searchParams.get('query') || '').trim();
+    // 3. ?q=... / ?query=... / ?destination=... パラメータを抽出
+    const qParam = (
+      parsedUrl.searchParams.get('q') ||
+      parsedUrl.searchParams.get('query') ||
+      parsedUrl.searchParams.get('destination') ||
+      ''
+    ).trim();
     if (qParam) {
       const qCoordMatch = qParam.match(/^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/);
       if (qCoordMatch) {
@@ -237,6 +250,94 @@ async function reverseGeocodeJapaneseSpot(lat, lng) {
 }
 
 /**
+ * Gemini url_context ＋ google_search ツールを使い、短縮URL (maps.app.goo.gl 等) の飛び先情報をサーバー側で展開・取得
+ */
+async function resolveShortGoogleMapsUrlWithGemini(googleUrl) {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey || !googleUrl) return null;
+
+  const modelCandidates = [
+    'gemini-2.5-flash',
+    getGeminiModel(),
+    'gemini-4-hydrogen',
+    'gemini-3.8-flash'
+  ].filter((m, idx, arr) => Boolean(m) && arr.indexOf(m) === idx);
+
+  const prompt = `
+次のGoogleマップ短縮リンクが指している日本の場所（神社・お寺・スポット等）を開いて確認し、正式な名称・住所・都道府県・緯度経度をJSONだけで返してください。
+URL: ${googleUrl}
+
+{
+  "name": "施設・神社・お寺の正式名（取得不可なら空文字）",
+  "prefecture": "都道府県名",
+  "address": "住所",
+  "lat": null,
+  "lng": null,
+  "expandedUrl": "リダイレクト先のGoogleマップURL"
+}
+`.trim();
+
+  for (const modelId of modelCandidates) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        modelId
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          tools: [{ url_context: {} }, { google_search: {} }],
+          generationConfig: { temperature: 0.1 }
+        })
+      });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      const cand = data?.candidates?.[0];
+
+      // urlContextMetadata から展開後の実URLを抽出
+      const retrievedUrls = (cand?.urlContextMetadata?.urlMetadata || [])
+        .map((u) => u?.retrievedUrl || '')
+        .filter(Boolean);
+      const expandedFromMeta = retrievedUrls.find((u) => /google\.[^/]+\/maps/i.test(u)) || '';
+
+      const rawText = cand?.content?.parts?.map((p) => p.text || '').join('\n') || '';
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      let parsedJson = null;
+      if (jsonMatch) {
+        try {
+          parsedJson = JSON.parse(jsonMatch[0]);
+        } catch {
+          parsedJson = null;
+        }
+      }
+
+      const expandedUrl = parsedJson?.expandedUrl || expandedFromMeta || '';
+      const name = (parsedJson?.name || '').trim();
+      if (expandedUrl || name) {
+        return {
+          name,
+          prefecture: (parsedJson?.prefecture || '').trim(),
+          address: (parsedJson?.address || '').trim(),
+          lat: typeof parsedJson?.lat === 'number' ? parsedJson.lat : null,
+          lng: typeof parsedJson?.lng === 'number' ? parsedJson.lng : null,
+          expandedUrl
+        };
+      }
+    } catch {
+      // 次のモデルで再試行
+    }
+  }
+  return null;
+}
+
+/**
  * 解析したGoogleマップ情報からアプリ用スポット候補リストを生成
  */
 export async function resolveGoogleMapsShareToCandidates(
@@ -245,8 +346,41 @@ export async function resolveGoogleMapsShareToCandidates(
   userLocation = DEFAULT_CENTER,
   manualNameOverride = ''
 ) {
-  const parsed = parseGoogleMapsShareInput(sharePayload);
-  const queryName = (manualNameOverride || parsed.name || '').trim();
+  let parsed = parseGoogleMapsShareInput(sharePayload);
+  let queryName = (manualNameOverride || parsed.name || '').trim();
+
+  // 短縮URL単体（名前も座標もない）場合は、まず Gemini url_context で自動展開を試みる
+  if (parsed.isShortUrlOnly && !queryName && parsed.googleUrl) {
+    const expanded = await resolveShortGoogleMapsUrlWithGemini(parsed.googleUrl);
+    if (expanded) {
+      const fromExpandedUrl = expanded.expandedUrl
+        ? parseSingleGoogleMapsUrl(expanded.expandedUrl)
+        : {};
+      const resolvedName = (expanded.name || fromExpandedUrl.name || '').trim();
+      const resolvedAddr = (expanded.address || fromExpandedUrl.addressHint || '').trim();
+      const resolvedPref =
+        expanded.prefecture ||
+        extractPrefectureFromSpot({ address: resolvedAddr, name: resolvedName });
+      const resolvedLat =
+        typeof expanded.lat === 'number' ? expanded.lat : fromExpandedUrl.lat ?? null;
+      const resolvedLng =
+        typeof expanded.lng === 'number' ? expanded.lng : fromExpandedUrl.lng ?? null;
+
+      parsed = {
+        ...parsed,
+        name: resolvedName,
+        addressHint: resolvedAddr || parsed.addressHint,
+        areaHint:
+          resolvedPref && ALL_PREFECTURES.includes(resolvedPref)
+            ? resolvedPref
+            : parsed.areaHint,
+        lat: resolvedLat,
+        lng: resolvedLng,
+        isShortUrlOnly: !resolvedName && resolvedLat == null
+      };
+      queryName = resolvedName;
+    }
+  }
 
   if (parsed.isShortUrlOnly && !queryName) {
     return {
@@ -272,6 +406,21 @@ export async function resolveGoogleMapsShareToCandidates(
   ) {
     let resolvedName = queryName;
     let resolvedAddr = parsed.addressHint;
+
+    // 座標のみURLで名前がない場合、近傍250mの既登録社寺からも候補補完
+    if (!resolvedName && Array.isArray(localSpots) && localSpots.length > 0) {
+      const nearLocal = localSpots.find(
+        (s) =>
+          typeof s.lat === 'number' &&
+          typeof s.lng === 'number' &&
+          calcDistanceMeters(s.lat, s.lng, parsed.lat, parsed.lng) < 250
+      );
+      if (nearLocal) {
+        resolvedName = nearLocal.name;
+        if (!resolvedAddr) resolvedAddr = nearLocal.address || '';
+      }
+    }
+
     if (!resolvedName || !resolvedAddr) {
       const rev = await reverseGeocodeJapaneseSpot(parsed.lat, parsed.lng);
       if (rev) {
@@ -280,30 +429,30 @@ export async function resolveGoogleMapsShareToCandidates(
       }
     }
 
-    if (resolvedName) {
-      const spotType = inferSpotTypeFromName(resolvedName);
-      const pref = extractPrefectureFromSpot({
-        address: resolvedAddr,
-        lat: parsed.lat,
-        lng: parsed.lng
-      });
-      const distMeters = calcDistanceMeters(baseLat, baseLng, parsed.lat, parsed.lng);
-      exactPinCandidate = {
-        id: `gmap-pin-${parsed.lat.toFixed(5)}-${parsed.lng.toFixed(5)}`,
-        name: resolvedName,
-        type: spotType,
-        denomination: spotType === 'temple' ? '仏教（寺院）' : '神道（神社）',
-        address: resolvedAddr || pref || 'Googleマップ指定地点',
-        prefecture: pref,
-        lat: parsed.lat,
-        lng: parsed.lng,
-        distanceMeters: distMeters,
-        distanceKm: Math.round((distMeters / 1000) * 10) / 10,
-        distanceLabel: formatDistanceLabel(distMeters),
-        sampleGoshuin: buildDefaultSampleGoshuin(resolvedName, spotType),
-        source: 'Googleマップ指定地点'
-      };
-    }
+    // 逆ジオコーディングで施設名が空（町名・番地のみ）の場合も、座標地点スポットとして必ず候補生成
+    const finalName = resolvedName || resolvedAddr || 'Googleマップ指定地点';
+    const spotType = inferSpotTypeFromName(finalName);
+    const pref = extractPrefectureFromSpot({
+      address: resolvedAddr,
+      lat: parsed.lat,
+      lng: parsed.lng
+    });
+    const distMeters = calcDistanceMeters(baseLat, baseLng, parsed.lat, parsed.lng);
+    exactPinCandidate = {
+      id: `gmap-pin-${parsed.lat.toFixed(5)}-${parsed.lng.toFixed(5)}`,
+      name: finalName,
+      type: spotType,
+      denomination: spotType === 'temple' ? '仏教（寺院）' : '神道（神社）',
+      address: resolvedAddr || pref || 'Googleマップ指定地点',
+      prefecture: pref,
+      lat: parsed.lat,
+      lng: parsed.lng,
+      distanceMeters: distMeters,
+      distanceKm: Math.round((distMeters / 1000) * 10) / 10,
+      distanceLabel: formatDistanceLabel(distMeters),
+      sampleGoshuin: buildDefaultSampleGoshuin(finalName, spotType),
+      source: 'Googleマップ指定地点'
+    };
   }
 
   // 名前・地域の手がかりからアプリ内5ソース全国検索を実行

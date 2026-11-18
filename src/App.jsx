@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Compass, BookOpen, MapPin, Sparkles, KeyRound, PlusCircle, Heart, HardDrive } from 'lucide-react';
-import { db, getPlaceId } from './db/database.js';
+import { db, getPlaceId, extractPrefectureFromSpot } from './db/database.js';
 import { DEFAULT_CENTER, SEED_SPOTS } from './data/seedSpots.js';
 import { fetchNearbyWorshipSpots, calculateDistanceKm } from './services/overpassApi.js';
 import { getGeminiApiKey } from './services/geminiService.js';
@@ -337,6 +337,17 @@ function AppContent({ activeTab, setActiveTab }) {
     });
   };
 
+  // Googleマップ共有/URL取り込み完了時：フィルタで隠れないようにしてから地図へ移動
+  const handleImportedGmapSpot = (spot) => {
+    const pref = spot.prefecture || extractPrefectureFromSpot(spot);
+    if (filterType === 'favorite') {
+      setSelectedFavPrefecture(pref || 'ALL');
+    } else if (filterType !== 'all') {
+      setFilterType('all');
+    }
+    handleSelectSpot(spot);
+  };
+
   // AIコース等から「指定県のお気に入りのみマップ表示」へジャンプ
   const handleShowPrefectureFavoritesOnMap = (prefecture) => {
     setSelectedSpot(null);
@@ -611,7 +622,7 @@ function AppContent({ activeTab, setActiveTab }) {
           allSpots={mergedSpots}
           userLocation={userLocation}
           favoriteMap={favoriteMap}
-          onImportedSpot={handleSelectSpot}
+          onImportedSpot={handleImportedGmapSpot}
         />
 
         {/* どこからでもアプリを終了しようとした際に表示される確認アナウンス */}

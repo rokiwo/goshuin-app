@@ -22,6 +22,7 @@ import {
 import { searchShrineCandidatesByName } from '../services/shrineSearchService.js';
 import {
   isGoogleMapsInput,
+  parseGoogleMapsShareInput,
   resolveGoogleMapsShareToCandidates
 } from '../services/googleMapsShareService.js';
 import {
@@ -345,11 +346,17 @@ export default function MapView({
       id: cand.id,
       prefecture: cand.prefecture || extractPrefectureFromSpot(cand)
     };
+    const wasFav = Boolean(favoriteMap[cand.id]);
     setPinnedSearchSpots((prev) => {
       if (prev.some((p) => p.id === spotObj.id)) return prev;
       return [spotObj, ...prev];
     });
     await toggleFavoriteSpot(spotObj);
+
+    // URL貼り付け経由で新たにお気に入り登録した場合は、そのままマップ上へジャンプして反映を見やすくする
+    if (!wasFav && isGoogleMapsInput(searchQuery)) {
+      handlePickSearchResult(spotObj);
+    }
   };
 
   // 地図をドラッグして一定距離離れたら「このエリアで寺社を検索」ボタンを表示
@@ -486,6 +493,31 @@ export default function MapView({
   }, [filterType, activeFavPref, favFitTrigger, manualFavFitCount, filteredSpots]);
 
   const activeCircleCenter = searchCenter || userLocation;
+
+  // 本家Googleマップ埋め込み・外部検索リンク用のクエリ（生URLをそのまま渡さない）
+  const googleEmbedQuery = (() => {
+    const q = searchQuery.trim();
+    if (q) {
+      if (isGoogleMapsInput(q)) {
+        if (searchResults.length > 0) {
+          return `${searchResults[0].name} ${searchResults[0].address || ''}`.trim();
+        }
+        const parsed = parseGoogleMapsShareInput({ rawText: q });
+        if (parsed.name) return `${parsed.name} ${parsed.areaHint || ''}`.trim();
+        if (typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
+          return `${parsed.lat},${parsed.lng}`;
+        }
+      } else {
+        return q;
+      }
+    }
+    if (filterType === 'favorite' && activeFavPref && activeFavPref !== 'ALL') {
+      return `${activeFavPref} 神社 寺院`;
+    }
+    return `${(mapCenter || searchCenter || userLocation).lat},${
+      (mapCenter || searchCenter || userLocation).lng
+    } 神社 寺院`;
+  })();
 
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
@@ -952,13 +984,7 @@ export default function MapView({
               <iframe
                 title="本家Googleマップ検索"
                 src={`https://maps.google.com/maps?q=${encodeURIComponent(
-                  searchQuery.trim()
-                    ? searchQuery.trim()
-                    : filterType === 'favorite' && activeFavPref && activeFavPref !== 'ALL'
-                    ? `${activeFavPref} 神社 寺院`
-                    : `${(mapCenter || searchCenter || userLocation).lat},${
-                        (mapCenter || searchCenter || userLocation).lng
-                      } 神社 寺院`
+                  googleEmbedQuery
                 )}&z=14&hl=ja&output=embed`}
                 className="w-full h-full border-0"
                 loading="lazy"
@@ -970,13 +996,7 @@ export default function MapView({
             <div className="shrink-0 flex items-center gap-1.5">
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  searchQuery.trim()
-                    ? searchQuery.trim()
-                    : filterType === 'favorite' && activeFavPref && activeFavPref !== 'ALL'
-                    ? `${activeFavPref} 神社 寺院`
-                    : `${(mapCenter || searchCenter || userLocation).lat},${
-                        (mapCenter || searchCenter || userLocation).lng
-                      } 神社 寺院`
+                  googleEmbedQuery
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
