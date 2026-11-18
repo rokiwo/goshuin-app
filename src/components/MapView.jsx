@@ -360,19 +360,6 @@ export default function MapView({
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
-            {/* 本家Googleマップモード切替トグル */}
-            <button
-              type="button"
-              onClick={() => setIsGoogleEmbedMode((prev) => !prev)}
-              className={`px-2 py-1 rounded-xl text-[10px] font-serif font-bold border transition shrink-0 whitespace-nowrap ${
-                isGoogleEmbedMode
-                  ? 'bg-shuiro text-washi border-shuiro shadow-sm'
-                  : 'bg-sumi text-kin border-kin/50 hover:bg-sumi-light'
-              }`}
-              title="本家Googleマップ画面と御朱印ピン地図を切り替え"
-            >
-              {isGoogleEmbedMode ? 'ピン地図へ戻る' : 'Google検索地図'}
-            </button>
           </div>
 
           {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン付き） */}
@@ -488,7 +475,7 @@ export default function MapView({
             <button
               type="button"
               onClick={() => onFilterChange('all')}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
+              className={`px-2 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
                 filterType === 'all'
                   ? 'bg-kin text-sumi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
@@ -499,7 +486,7 @@ export default function MapView({
             <button
               type="button"
               onClick={() => onFilterChange('favorite')}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+              className={`px-2 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                 filterType === 'favorite'
                   ? 'bg-amber-500 text-white font-bold shadow-sm'
                   : 'text-amber-300 hover:text-amber-200'
@@ -511,7 +498,7 @@ export default function MapView({
             <button
               type="button"
               onClick={() => onFilterChange('shrine')}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+              className={`px-2 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                 filterType === 'shrine'
                   ? 'bg-shuiro text-washi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
@@ -523,7 +510,7 @@ export default function MapView({
             <button
               type="button"
               onClick={() => onFilterChange('temple')}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+              className={`px-2 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
                 filterType === 'temple'
                   ? 'bg-tera text-washi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
@@ -535,7 +522,7 @@ export default function MapView({
             <button
               type="button"
               onClick={() => onFilterChange('visited')}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
+              className={`px-2 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
                 filterType === 'visited'
                   ? 'bg-kin text-sumi font-bold shadow-sm'
                   : 'text-washi/80 hover:text-washi'
@@ -546,24 +533,24 @@ export default function MapView({
           </div>
         </div>
 
-        {/* 検索範囲（5/10/15/20km）＋ 地図スタイル切替・現在地・再検索ボタンをスッキリ整理 */}
-        <div className="flex items-center justify-between gap-1.5 pointer-events-auto">
-          <div className="flex items-center gap-1 bg-sumi/90 backdrop-blur-md px-2.5 py-1 rounded-full border border-kin/30 shadow-md flex-1 min-w-0 justify-between">
-            <span className="text-[10px] font-serif font-bold text-kin flex items-center gap-0.5 shrink-0">
-              <Search className="w-2.5 h-2.5 text-shuiro" />
-              範囲:
+        {/* 検索範囲（半径 5km / 10km / 15km / 20km）独立1行バー（かぶり防止） */}
+        <div className="w-full pointer-events-auto">
+          <div className="flex items-center justify-between gap-1 bg-sumi/90 backdrop-blur-md px-3 py-1 rounded-full border border-kin/30 shadow-md">
+            <span className="text-[10px] font-serif font-bold text-kin flex items-center gap-1 shrink-0">
+              <Search className="w-3 h-3 text-shuiro" />
+              検索範囲:
             </span>
-            <div className="flex items-center gap-0.5">
+            <div className="grid grid-cols-4 gap-1 flex-1 max-w-[260px]">
               {[5, 10, 15, 20].map((km) => (
                 <button
                   key={km}
                   type="button"
                   onClick={() => onChangeRadius && onChangeRadius(km)}
                   disabled={isLoading}
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold transition whitespace-nowrap ${
+                  className={`py-0.5 rounded-full text-[10px] font-bold transition text-center whitespace-nowrap ${
                     searchRadiusKm === km
                       ? 'bg-shuiro text-washi shadow-sm'
-                      : 'text-washi/80 hover:text-washi'
+                      : 'text-washi/80 hover:text-washi hover:bg-white/10'
                   }`}
                 >
                   {km}km
@@ -571,17 +558,39 @@ export default function MapView({
               ))}
             </div>
           </div>
+        </div>
+
+        {/* 地図モード切替（本家Googleマップ画面 ⇔ 御朱印ピン地図）＋ レイヤー切替 ＋ 現在地 ＋ 更新ボタン */}
+        <div className="flex items-center justify-between gap-1.5 pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setIsGoogleEmbedMode((prev) => !prev)}
+            className={`px-3 h-8 rounded-full text-[11px] font-serif font-bold border shadow-lg flex items-center gap-1.5 active:scale-95 transition whitespace-nowrap ${
+              isGoogleEmbedMode
+                ? 'bg-shuiro text-washi border-kin'
+                : 'bg-washi text-sumi border-kin'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5 text-shuiro shrink-0" />
+            <span>
+              {isGoogleEmbedMode
+                ? '御朱印ピン地図に戻る'
+                : '本家Googleマップ画面で全社寺を見る'}
+            </span>
+          </button>
 
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={cycleTileStyle}
-              title="地図の表示スタイル切替（Googleマップ / 航空写真）"
-              className="px-2 h-8 rounded-full bg-washi text-sumi border border-kin/50 shadow-lg flex items-center gap-1 text-[10px] font-bold active:scale-95 transition whitespace-nowrap"
-            >
-              <Layers className="w-3 h-3 text-shuiro shrink-0" />
-              <span>{currentTile.label}</span>
-            </button>
+            {!isGoogleEmbedMode && (
+              <button
+                type="button"
+                onClick={cycleTileStyle}
+                title="地図スタイル切替（標準 / 航空写真）"
+                className="px-2.5 h-8 rounded-full bg-washi text-sumi border border-kin/50 shadow-lg flex items-center gap-1 text-[10px] font-bold active:scale-95 transition whitespace-nowrap"
+              >
+                <Layers className="w-3 h-3 text-shuiro shrink-0" />
+                <span>{currentTile.label}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onRecenterUser}
@@ -626,7 +635,7 @@ export default function MapView({
       {/* Google マップ タイル統合マップ本体 または 本家Googleマップ埋め込み画面 */}
       <div className="flex-1 w-full h-full">
         {isGoogleEmbedMode ? (
-          <div className="w-full h-full pt-28 pb-36 px-2 bg-sumi/95 flex flex-col">
+          <div className="w-full h-full pt-36 pb-36 px-2 bg-sumi/95 flex flex-col">
             <div className="flex-1 w-full rounded-2xl overflow-hidden border-2 border-kin shadow-2xl bg-washi relative">
               <iframe
                 title="本家Googleマップ検索"
