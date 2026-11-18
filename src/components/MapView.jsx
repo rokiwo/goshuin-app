@@ -13,7 +13,10 @@ import {
   Star,
   X,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { searchShrineCandidatesByName } from '../services/shrineSearchService.js';
 import { toggleFavoriteSpot, extractPrefectureFromSpot } from '../db/database.js';
@@ -187,6 +190,10 @@ export default function MapView({
   // ★本家Googleマップ埋め込みモード（Googleマップに表示される全神社・寺院・口コミ・写真をそのままアプリ内で閲覧可能）
   const [isGoogleEmbedMode, setIsGoogleEmbedMode] = useState(false);
 
+  // ★マップを広く見せるための上部フィルタパネル＆下部カードリストの開閉ステート（デフォルトはスッキリ格納して地図を広く表示）
+  const [isToolsExpanded, setIsToolsExpanded] = useState(false);
+  const [isBottomCardsMinimized, setIsBottomCardsMinimized] = useState(false);
+
   const currentTile = MAP_TILE_STYLES[tileStyleKey] || MAP_TILE_STYLES.google_road;
 
   const cycleTileStyle = () => {
@@ -327,50 +334,130 @@ export default function MapView({
 
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
-      {/* 上部フローティング：Googleマップ全国神社検索バー ＆ 種別フィルタピル ＆ 地図切替 */}
-      <div className="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-col gap-1.5 pointer-events-none">
-        {/* ★Googleマップ全国神社・お寺検索ボックス（お気に入りワンタップ登録付き） */}
+      {/* 上部フローティング：普段は「検索バー1本＋右側ミニボタン」だけでマップを最大限広く見せる */}
+      <div className="absolute top-2 left-2.5 right-2.5 z-20 flex flex-col gap-1.5 pointer-events-none">
+        {/* ★1行目：全国神社・お寺検索ボックス ＋ 絞り込み開閉ボタン ＋ 本家Gマップ切替ボタン */}
         <div className="relative pointer-events-auto">
-          <div className="flex items-center gap-1.5 bg-washi/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border-2 border-kin shadow-xl">
-            <Search className="w-4 h-4 text-shuiro shrink-0" />
-            <input
-              type="text"
-              value={searchQuery}
-              onFocus={() => {
-                if (searchQuery.trim().length >= 2) setIsSearchOpen(true);
-              }}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="神社・お寺を全国検索 (例: 伊勢神宮、京都 八坂神社)"
-              className="flex-1 bg-transparent text-xs font-serif font-bold text-sumi placeholder:text-sumi-muted/75 focus:outline-none min-w-0"
-            />
-            {isSearchingName && (
-              <Loader2 className="w-3.5 h-3.5 text-shuiro animate-spin shrink-0" />
-            )}
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  setSearchResults([]);
-                  setIsSearchOpen(false);
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1 min-w-0 flex items-center gap-1.5 bg-washi/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border-2 border-kin shadow-lg">
+              <Search className="w-4 h-4 text-shuiro shrink-0" />
+              <input
+                type="text"
+                value={searchQuery}
+                onFocus={() => {
+                  if (searchQuery.trim().length >= 2) setIsSearchOpen(true);
                 }}
-                className="p-1 rounded-full hover:bg-sumi/10 text-sumi-muted shrink-0"
-                title="検索クリア"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="神社・お寺を検索 (例: 伊勢神宮、八坂神社)"
+                className="flex-1 bg-transparent text-xs font-serif font-bold text-sumi placeholder:text-sumi-muted/75 focus:outline-none min-w-0"
+              />
+              {isSearchingName && (
+                <Loader2 className="w-3.5 h-3.5 text-shuiro animate-spin shrink-0" />
+              )}
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    setIsSearchOpen(false);
+                  }}
+                  className="p-0.5 rounded-full hover:bg-sumi/10 text-sumi-muted shrink-0"
+                  title="検索クリア"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* 本家Googleマップ ⇔ ピン地図 ワンタップ切替ボタン */}
+            <button
+              type="button"
+              onClick={() => setIsGoogleEmbedMode((prev) => !prev)}
+              className={`px-2.5 py-2 rounded-2xl border-2 text-[11px] font-serif font-bold shadow-lg flex items-center gap-1 shrink-0 active:scale-95 transition whitespace-nowrap ${
+                isGoogleEmbedMode
+                  ? 'bg-shuiro text-washi border-kin'
+                  : 'bg-sumi text-kin border-kin/70'
+              }`}
+              title="本家Googleマップ検索画面と切り替え"
+            >
+              <MapPin className="w-3.5 h-3.5 text-kin shrink-0" />
+              <span>{isGoogleEmbedMode ? 'ピン地図' : 'Gマップ'}</span>
+            </button>
+
+            {/* 絞り込み・検索範囲の開閉ボタン */}
+            <button
+              type="button"
+              onClick={() => setIsToolsExpanded((prev) => !prev)}
+              className={`px-2.5 py-2 rounded-2xl border-2 text-[11px] font-serif font-bold shadow-lg flex items-center gap-1 shrink-0 active:scale-95 transition whitespace-nowrap ${
+                isToolsExpanded || filterType !== 'all'
+                  ? 'bg-kin text-sumi border-sumi'
+                  : 'bg-washi/95 text-sumi border-kin'
+              }`}
+              title="種別絞り込み・検索範囲を開く"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-shuiro shrink-0" />
+              <span>絞込</span>
+            </button>
           </div>
 
-          {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン付き） */}
+          {/* ★本家Googleマップモード時で検索ワードがあるとき、または検索候補の上に「クイック★お気に入り追加バー」を表示 */}
+          {isGoogleEmbedMode && searchQuery.trim().length >= 2 && searchResults.length > 0 && !isSearchOpen && (
+            <div className="mt-1.5 p-2 rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-xl flex items-center justify-between gap-2 animate-slide-up">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1">
+                  <span className="px-1.5 py-0.2 rounded bg-kin/30 text-sumi font-serif font-bold text-[10px] shrink-0">
+                    {searchResults[0].prefecture || extractPrefectureFromSpot(searchResults[0])}
+                  </span>
+                  <span className="font-serif font-bold text-xs text-sumi truncate">
+                    {searchResults[0].name}
+                  </span>
+                </div>
+                <p className="text-[10px] text-sumi-muted truncate">
+                  {searchResults[0].address}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleFav(e, searchResults[0])}
+                  className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition ${
+                    favoriteMap[searchResults[0].id]
+                      ? 'bg-amber-500 text-white border-amber-600'
+                      : 'bg-sumi text-kin border-kin'
+                  }`}
+                >
+                  <Star
+                    className={`w-3 h-3 ${
+                      favoriteMap[searchResults[0].id] ? 'fill-white text-white' : 'text-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {favoriteMap[searchResults[0].id] ? 'お気に入り済' : '★お気に入り追加'}
+                  </span>
+                </button>
+                {searchResults.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSearchOpen(true)}
+                    className="px-2 py-1.5 rounded-xl bg-washi-dark border border-kin/40 text-[10px] font-serif font-bold text-sumi"
+                  >
+                    他{searchResults.length - 1}件
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン＆本家Gマップ確認ボタン付き） */}
           {isSearchOpen && searchQuery.trim().length >= 2 && (
-            <div className="mt-1.5 max-h-64 overflow-y-auto rounded-2xl bg-washi/98 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
+            <div className="mt-1.5 max-h-60 overflow-y-auto rounded-2xl bg-washi/98 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
               <div className="px-3 py-1.5 bg-sumi text-washi flex items-center justify-between text-[10px] font-serif">
                 <span className="flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-kin" />
                   {isSearchingName
                     ? `「${searchQuery.trim()}」を全国検索中...`
-                    : `検索結果 ${searchResults.length}件（★でお気に入り保存・県別整理）`}
+                    : `候補 ${searchResults.length}件（タップで地図移動・★でお気に入り追加）`}
                 </span>
                 <button
                   type="button"
@@ -384,19 +471,18 @@ export default function MapView({
               {!isSearchingName && searchResults.length === 0 ? (
                 <div className="p-3 text-center space-y-2">
                   <p className="text-xs text-sumi-muted">
-                    アプリ内マップ候補で見つかりませんでした。
+                    候補が見つかりませんでした。
                   </p>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                      searchQuery.trim()
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsGoogleEmbedMode(true);
+                      setIsSearchOpen(false);
+                    }}
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-shuiro text-washi text-xs font-serif font-bold shadow"
                   >
-                    <span>Googleマップ本家で「{searchQuery.trim()}」を開く</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+                    <span>本家Googleマップ画面で「{searchQuery.trim()}」を表示</span>
+                  </button>
                 </div>
               ) : (
                 searchResults.map((cand) => {
@@ -469,173 +555,154 @@ export default function MapView({
           )}
         </div>
 
-        {/* 種別フィルタピル（横幅100%を使って「★ お気に入り」などの文字が隠れないように配置） */}
-        <div className="w-full pointer-events-auto">
-          <div className="flex items-center justify-between gap-1 bg-sumi/90 backdrop-blur-md p-1 rounded-full border border-kin/30 shadow-lg overflow-x-auto no-scrollbar">
-            <button
-              type="button"
-              onClick={() => onFilterChange('all')}
-              className={`px-2 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
-                filterType === 'all'
-                  ? 'bg-kin text-sumi font-bold shadow-sm'
-                  : 'text-washi/80 hover:text-washi'
-              }`}
-            >
-              全社寺({allMapSpots.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => onFilterChange('favorite')}
-              className={`px-2 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
-                filterType === 'favorite'
-                  ? 'bg-amber-500 text-white font-bold shadow-sm'
-                  : 'text-amber-300 hover:text-amber-200'
-              }`}
-            >
-              <Star className="w-3 h-3 fill-current shrink-0" />
-              <span>お気に入り({favoriteCountOnMap})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onFilterChange('shrine')}
-              className={`px-2 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
-                filterType === 'shrine'
-                  ? 'bg-shuiro text-washi font-bold shadow-sm'
-                  : 'text-washi/80 hover:text-washi'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-shuiro inline-block border border-washi/60 shrink-0" />
-              <span>神社({allMapSpots.filter((s) => s.type === 'shrine').length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onFilterChange('temple')}
-              className={`px-2 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
-                filterType === 'temple'
-                  ? 'bg-tera text-washi font-bold shadow-sm'
-                  : 'text-washi/80 hover:text-washi'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-tera inline-block border border-washi/60 shrink-0" />
-              <span>寺院({allMapSpots.filter((s) => s.type === 'temple').length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onFilterChange('visited')}
-              className={`px-2 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
-                filterType === 'visited'
-                  ? 'bg-kin text-sumi font-bold shadow-sm'
-                  : 'text-washi/80 hover:text-washi'
-              }`}
-            >
-              参拝済
-            </button>
-          </div>
-        </div>
-
-        {/* 検索範囲（半径 5km / 10km / 15km / 20km）独立1行バー（かぶり防止） */}
-        <div className="w-full pointer-events-auto">
-          <div className="flex items-center justify-between gap-1 bg-sumi/90 backdrop-blur-md px-3 py-1 rounded-full border border-kin/30 shadow-md">
-            <span className="text-[10px] font-serif font-bold text-kin flex items-center gap-1 shrink-0">
-              <Search className="w-3 h-3 text-shuiro" />
-              検索範囲:
-            </span>
-            <div className="grid grid-cols-4 gap-1 flex-1 max-w-[260px]">
-              {[5, 10, 15, 20].map((km) => (
-                <button
-                  key={km}
-                  type="button"
-                  onClick={() => onChangeRadius && onChangeRadius(km)}
-                  disabled={isLoading}
-                  className={`py-0.5 rounded-full text-[10px] font-bold transition text-center whitespace-nowrap ${
-                    searchRadiusKm === km
-                      ? 'bg-shuiro text-washi shadow-sm'
-                      : 'text-washi/80 hover:text-washi hover:bg-white/10'
-                  }`}
-                >
-                  {km}km
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* 地図モード切替（本家Googleマップ画面 ⇔ 御朱印ピン地図）＋ レイヤー切替 ＋ 現在地 ＋ 更新ボタン */}
-        <div className="flex items-center justify-between gap-1.5 pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => setIsGoogleEmbedMode((prev) => !prev)}
-            className={`px-3 h-8 rounded-full text-[11px] font-serif font-bold border shadow-lg flex items-center gap-1.5 active:scale-95 transition whitespace-nowrap ${
-              isGoogleEmbedMode
-                ? 'bg-shuiro text-washi border-kin'
-                : 'bg-washi text-sumi border-kin'
-            }`}
-          >
-            <MapPin className="w-3.5 h-3.5 text-shuiro shrink-0" />
-            <span>
-              {isGoogleEmbedMode
-                ? '御朱印ピン地図に戻る'
-                : '本家Googleマップ画面で全社寺を見る'}
-            </span>
-          </button>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {!isGoogleEmbedMode && (
+        {/* ★「絞込」ボタンを押したときだけ開くコンパクト設定ドロワー（普段は隠してマップを広く表示） */}
+        {isToolsExpanded && (
+          <div className="pointer-events-auto rounded-2xl bg-sumi/95 backdrop-blur-md p-2.5 border border-kin/50 shadow-2xl space-y-2 animate-slide-up">
+            {/* 種別フィルタ */}
+            <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
               <button
                 type="button"
-                onClick={cycleTileStyle}
-                title="地図スタイル切替（標準 / 航空写真）"
-                className="px-2.5 h-8 rounded-full bg-washi text-sumi border border-kin/50 shadow-lg flex items-center gap-1 text-[10px] font-bold active:scale-95 transition whitespace-nowrap"
+                onClick={() => onFilterChange('all')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
+                  filterType === 'all'
+                    ? 'bg-kin text-sumi font-bold shadow-sm'
+                    : 'text-washi/80 hover:text-washi'
+                }`}
               >
-                <Layers className="w-3 h-3 text-shuiro shrink-0" />
-                <span>{currentTile.label}</span>
+                全社寺({allMapSpots.length})
               </button>
-            )}
-            <button
-              type="button"
-              onClick={onRecenterUser}
-              title="現在地へ移動"
-              className="w-8 h-8 rounded-full bg-washi text-sumi border border-kin/40 shadow-lg flex items-center justify-center active:scale-95 transition shrink-0"
-            >
-              <Navigation className="w-3.5 h-3.5 text-shuiro" />
-            </button>
-            <button
-              type="button"
-              onClick={onRefreshNearby}
-              disabled={isLoading}
-              title="周辺を再検索"
-              className="w-8 h-8 rounded-full bg-sumi text-kin border border-kin/40 shadow-lg flex items-center justify-center active:scale-95 transition disabled:opacity-60 shrink-0"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
+              <button
+                type="button"
+                onClick={() => onFilterChange('favorite')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+                  filterType === 'favorite'
+                    ? 'bg-amber-500 text-white font-bold shadow-sm'
+                    : 'text-amber-300 hover:text-amber-200'
+                }`}
+              >
+                <Star className="w-3 h-3 fill-current shrink-0" />
+                <span>お気に入り({favoriteCountOnMap})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onFilterChange('shrine')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+                  filterType === 'shrine'
+                    ? 'bg-shuiro text-washi font-bold shadow-sm'
+                    : 'text-washi/80 hover:text-washi'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-shuiro inline-block border border-washi/60 shrink-0" />
+                <span>神社({allMapSpots.filter((s) => s.type === 'shrine').length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onFilterChange('temple')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+                  filterType === 'temple'
+                    ? 'bg-tera text-washi font-bold shadow-sm'
+                    : 'text-washi/80 hover:text-washi'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-tera inline-block border border-washi/60 shrink-0" />
+                <span>寺院({allMapSpots.filter((s) => s.type === 'temple').length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onFilterChange('visited')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition whitespace-nowrap ${
+                  filterType === 'visited'
+                    ? 'bg-kin text-sumi font-bold shadow-sm'
+                    : 'text-washi/80 hover:text-washi'
+                }`}
+              >
+                参拝済
+              </button>
+            </div>
+
+            {/* 検索範囲 ＆ 地図スタイル切替 */}
+            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-washi/15">
+              <div className="flex items-center gap-1 flex-1">
+                <span className="text-[10px] font-serif font-bold text-kin shrink-0">
+                  範囲:
+                </span>
+                {[5, 10, 15, 20].map((km) => (
+                  <button
+                    key={km}
+                    type="button"
+                    onClick={() => onChangeRadius && onChangeRadius(km)}
+                    disabled={isLoading}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition whitespace-nowrap ${
+                      searchRadiusKm === km
+                        ? 'bg-shuiro text-washi shadow-sm'
+                        : 'text-washi/80 hover:text-washi bg-white/5'
+                    }`}
+                  >
+                    {km}km
+                  </button>
+                ))}
+              </div>
+
+              {!isGoogleEmbedMode && (
+                <button
+                  type="button"
+                  onClick={cycleTileStyle}
+                  className="px-2.5 py-1 rounded-full bg-washi text-sumi border border-kin text-[10px] font-bold flex items-center gap-1 shrink-0"
+                >
+                  <Layers className="w-3 h-3 text-shuiro" />
+                  <span>{currentTile.label}</span>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* 地図をスクロールした際に表示される「このエリアで寺社を検索」ボタン */}
-        {showSearchHereBtn && !isLoading && (
+        {showSearchHereBtn && !isLoading && !isGoogleEmbedMode && (
           <button
             type="button"
             onClick={handleSearchThisArea}
-            className="self-center pointer-events-auto bg-shuiro text-washi text-xs font-serif font-bold px-4 py-2 rounded-full border border-kin shadow-xl flex items-center gap-1.5 active:scale-95 transition"
+            className="self-center pointer-events-auto bg-shuiro text-washi text-xs font-serif font-bold px-3.5 py-1.5 rounded-full border border-kin shadow-xl flex items-center gap-1.5 active:scale-95 transition"
           >
             <Search className="w-3.5 h-3.5 text-kin" />
-            <span>この地図エリアの神社・お寺をすべて検索</span>
+            <span>このエリアの社寺を検索</span>
           </button>
         )}
 
         {/* 検索中インジケーター */}
         {isLoading && (
-          <div className="self-center pointer-events-auto bg-sumi/90 text-washi text-xs px-3.5 py-1.5 rounded-full border border-kin/40 shadow-md flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-kin animate-pulse" />
-            <span>周辺の神社・お寺を一括取得中...</span>
+          <div className="self-center pointer-events-auto bg-sumi/90 text-washi text-[11px] px-3 py-1 rounded-full border border-kin/40 shadow-md flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-kin animate-pulse" />
+            <span>周辺社寺を取得中...</span>
           </div>
         )}
+      </div>
+
+      {/* 右端フローティングのミニ操作ボタン（現在地・再読込・下部カードの収納/表示） */}
+      <div className="absolute right-2.5 top-16 z-20 flex flex-col gap-1.5 pointer-events-auto">
+        <button
+          type="button"
+          onClick={onRecenterUser}
+          title="現在地へ移動"
+          className="w-8 h-8 rounded-full bg-washi/95 text-sumi border border-kin shadow-lg flex items-center justify-center active:scale-95 transition"
+        >
+          <Navigation className="w-3.5 h-3.5 text-shuiro" />
+        </button>
+        <button
+          type="button"
+          onClick={onRefreshNearby}
+          disabled={isLoading}
+          title="周辺を再検索"
+          className="w-8 h-8 rounded-full bg-sumi/90 text-kin border border-kin/50 shadow-lg flex items-center justify-center active:scale-95 transition disabled:opacity-60"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
       {/* Google マップ タイル統合マップ本体 または 本家Googleマップ埋め込み画面 */}
       <div className="flex-1 w-full h-full">
         {isGoogleEmbedMode ? (
-          <div className="w-full h-full pt-36 pb-36 px-2 bg-sumi/95 flex flex-col">
+          <div className="w-full h-full pt-14 pb-2 px-1.5 bg-sumi/95 flex flex-col">
             <div className="flex-1 w-full rounded-2xl overflow-hidden border-2 border-kin shadow-2xl bg-washi relative">
               <iframe
                 title="本家Googleマップ検索"
@@ -704,94 +771,109 @@ export default function MapView({
         )}
       </div>
 
-      {/* 下部横スクロール：周辺寺社クイックカードリスト（最大80件までスムーズ表示） */}
-      <div className="absolute bottom-3 left-0 right-0 z-20 pointer-events-none">
-        <div className="flex items-stretch gap-3 overflow-x-auto no-scrollbar px-3 pb-1 pointer-events-auto">
-          {filteredSpots.slice(0, 80).map((spot) => {
-            const visitRecord = visitMap[spot.id];
-            const isVisited = Boolean(visitRecord?.visited);
-            const hasPhoto = Boolean(visitRecord?.photoDataUrl);
-            const isFavorite = Boolean(favoriteMap[spot.id]);
-            const isShrine = spot.type === 'shrine';
+      {/* 下部横スクロール：周辺寺社クイックカードリスト（折りたたみ可能・本家Gマップ時は自動格納して地図を広く表示） */}
+      {!isGoogleEmbedMode && (
+        <div className="absolute bottom-2.5 left-0 right-0 z-20 pointer-events-none flex flex-col items-center">
+          {/* カードリストをたたむ / 広げるミニつまみ */}
+          <button
+            type="button"
+            onClick={() => setIsBottomCardsMinimized((prev) => !prev)}
+            className="pointer-events-auto mb-1.5 px-3 py-1 rounded-full bg-sumi/90 text-kin border border-kin/50 shadow-lg text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition"
+          >
+            {isBottomCardsMinimized ? (
+              <>
+                <ChevronUp className="w-3 h-3" />
+                <span>周辺社寺カードを表示 ({filteredSpots.length}件)</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-3 h-3" />
+                <span>カードをたたんで地図を広く見る</span>
+              </>
+            )}
+          </button>
 
-            return (
-              <div
-                key={spot.id}
-                onClick={() => onSelectSpot(spot)}
-                className={`text-left shrink-0 w-64 rounded-2xl p-3 transition shadow-xl border backdrop-blur-md flex flex-col justify-between cursor-pointer ${
-                  selectedSpot?.id === spot.id
-                    ? 'bg-washi border-shuiro ring-2 ring-shuiro/40'
-                    : 'bg-washi/95 border-kin/40 hover:border-kin'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="flex items-center gap-1">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-washi ${
-                          isShrine ? 'bg-shuiro' : 'bg-tera'
-                        }`}
-                      >
-                        {isShrine ? '神社' : '寺院'}
-                      </span>
-                      {spot.hasGoshuin && (
-                        <span className="px-1.5 py-0.5 rounded bg-kin/20 text-kin-dark text-[9px] font-bold">
-                          御朱印人気
-                        </span>
-                      )}
+          {!isBottomCardsMinimized && (
+            <div className="w-full flex items-stretch gap-2.5 overflow-x-auto no-scrollbar px-3 pb-0.5 pointer-events-auto">
+              {filteredSpots.slice(0, 80).map((spot) => {
+                const visitRecord = visitMap[spot.id];
+                const isVisited = Boolean(visitRecord?.visited);
+                const hasPhoto = Boolean(visitRecord?.photoDataUrl);
+                const isFavorite = Boolean(favoriteMap[spot.id]);
+                const isShrine = spot.type === 'shrine';
+
+                return (
+                  <div
+                    key={spot.id}
+                    onClick={() => onSelectSpot(spot)}
+                    className={`text-left shrink-0 w-56 rounded-2xl p-2.5 transition shadow-xl border backdrop-blur-md flex flex-col justify-between cursor-pointer ${
+                      selectedSpot?.id === spot.id
+                        ? 'bg-washi border-shuiro ring-2 ring-shuiro/40'
+                        : 'bg-washi/95 border-kin/40 hover:border-kin'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1.5 mb-1">
+                        <div className="flex items-center gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-washi ${
+                              isShrine ? 'bg-shuiro' : 'bg-tera'
+                            }`}
+                          >
+                            {isShrine ? '神社' : '寺院'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleFav(e, spot)}
+                            title={isFavorite ? 'お気に入り解除' : 'お気に入りに登録'}
+                            className={`p-1 rounded-full border transition ${
+                              isFavorite
+                                ? 'bg-amber-500 text-white border-amber-600'
+                                : 'bg-washi text-amber-500 border-kin/40 hover:bg-amber-50'
+                            }`}
+                          >
+                            <Star className={`w-3 h-3 ${isFavorite ? 'fill-white' : ''}`} />
+                          </button>
+                          {hasPhoto && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-kin-dark bg-kin/15 px-1.5 py-0.5 rounded">
+                              <Camera className="w-3 h-3" />
+                            </span>
+                          )}
+                          {isVisited && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-shuiro bg-shuiro/10 px-1.5 py-0.5 rounded border border-shuiro/30">
+                              <CheckCircle2 className="w-3 h-3" /> 済
+                            </span>
+                          )}
+                          <span className="text-[10px] font-medium text-sumi-muted">
+                            {spot.distanceKm != null ? `${spot.distanceKm}km` : ''}
+                          </span>
+                        </div>
+                      </div>
+
+                      <h3 className="font-serif font-bold text-sm text-sumi truncate">
+                        {spot.name}
+                      </h3>
                     </div>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(e) => handleToggleFav(e, spot)}
-                        title={isFavorite ? 'お気に入り解除' : 'お気に入りに登録'}
-                        className={`p-1 rounded-full border transition ${
-                          isFavorite
-                            ? 'bg-amber-500 text-white border-amber-600'
-                            : 'bg-washi text-amber-500 border-kin/40 hover:bg-amber-50'
-                        }`}
-                      >
-                        <Star className={`w-3 h-3 ${isFavorite ? 'fill-white' : ''}`} />
-                      </button>
-                      {hasPhoto && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-kin-dark bg-kin/15 px-1.5 py-0.5 rounded">
-                          <Camera className="w-3 h-3" />
-                        </span>
-                      )}
-                      {isVisited && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-shuiro bg-shuiro/10 px-1.5 py-0.5 rounded border border-shuiro/30">
-                          <CheckCircle2 className="w-3 h-3" /> 済
-                        </span>
-                      )}
-                      <span className="text-[11px] font-medium text-sumi-muted">
-                        {spot.distanceKm != null ? `${spot.distanceKm}km` : ''}
+                    <div className="mt-1.5 pt-1.5 border-t border-washi-border flex items-center justify-between text-[10px] text-sumi-muted">
+                      <span className="truncate flex items-center gap-0.5 max-w-[140px]">
+                        <MapPin className="w-2.5 h-2.5 text-shuiro shrink-0" />
+                        {spot.address}
+                      </span>
+                      <span className="text-shuiro font-serif font-bold shrink-0">
+                        詳細 →
                       </span>
                     </div>
                   </div>
-
-                  <h3 className="font-serif font-bold text-base text-sumi truncate">
-                    {spot.name}
-                  </h3>
-                  <p className="text-[11px] text-sumi-muted truncate mt-0.5">
-                    {spot.denomination}
-                  </p>
-                </div>
-
-                <div className="mt-2 pt-2 border-t border-washi-border flex items-center justify-between text-[11px] text-sumi-muted">
-                  <span className="truncate flex items-center gap-1 max-w-[165px]">
-                    <MapPin className="w-3 h-3 text-shuiro shrink-0" />
-                    {spot.address}
-                  </span>
-                  <span className="text-shuiro font-serif font-bold shrink-0">
-                    御朱印を見る →
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -22,14 +22,14 @@
 
 /* iPhone (iOS) ＆ Android PWA スタンドアロンモード両対応の上部・下部セーフエリア余白 */
 .safe-top-header {
-  padding-top: max(0.6rem, calc(env(safe-area-inset-top, 0px) + 0.35rem));
+  padding-top: max(0.45rem, calc(env(safe-area-inset-top, 0px) + 0.25rem));
 }
 .safe-bottom-nav {
-  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(0.45rem, env(safe-area-inset-bottom, 0px));
 }
 @media all and (display-mode: standalone), all and (display-mode: fullscreen) {
   .safe-top-header {
-    padding-top: max(2.1rem, calc(env(safe-area-inset-top, 0px) + 0.5rem));
+    padding-top: max(0.75rem, calc(env(safe-area-inset-top, 0px) + 0.3rem));
   }
 }
 
