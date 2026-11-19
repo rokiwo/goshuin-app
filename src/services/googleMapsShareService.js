@@ -9,7 +9,8 @@ import {
   inferSpotTypeFromName,
   buildDefaultSampleGoshuin,
   calcDistanceMeters,
-  formatDistanceLabel
+  formatDistanceLabel,
+  normalizeShrineText
 } from './shrineSearchService.js';
 
 const GOOGLE_MAPS_URL_REGEX =
@@ -255,6 +256,90 @@ async function reverseGeocodeJapaneseSpot(lat, lng) {
 }
 
 /**
+ * EU等の Google 同意画面 (consent.google.com?continue=...) を剥がして元の GoogleマップURL を取り出す
+ */
+function unwrapGoogleRedirectUrl(urlStr = '') {
+  if (!urlStr) return '';
+  try {
+    const u = new URL(urlStr);
+    if (u.hostname.includes('consent.google.')) {
+      const cont = u.searchParams.get('continue');
+      if (cont) return cont;
+    }
+  } catch {
+    // ignore
+  }
+  return urlStr;
+}
+
+/**
+ * 共有テキストに含まれた正確な住所文字列からピンポイント座標 (lat, lng) を特定
+ */
+async function geocodeExactJapaneseAddress(addressHint, shrineName = '') {
+  const cleanAddr = String(addressHint || '').trim();
+  if (!cleanAddr) return null;
+
+  const queries = [];
+  if (shrineName) queries.push(`${shrineName} ${cleanAddr}`);
+  queries.push(cleanAddr);
+  // 番地付きで失敗する場合に備えて町名レベルも用意
+  const streetLevel = cleanAddr.replace(/[０-９0-9\-－−丁目番地号\s]+$/g, '').trim();
+
+  try {
+    // 国土地理院 AddressSearch ＋ Nominatim を並列実行
+    const [gsiRes, nomRes] = await Promise.allSettled([
+      fetch(
+        `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(cleanAddr)}`
+      ),
+      fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(
+          queries[0]
+        )}&countrycodes=jp&limit=3&accept-language=ja`
+      )
+    ]);
+
+    if (nomRes.status === 'fulfilled' && nomRes.value.ok) {
+      const items = await nomRes.value.json();
+      if (Array.isArray(items) && items.length > 0) {
+        const lat = parseFloat(items[0].lat);
+        const lng = parseFloat(items[0].lon);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+          return { lat, lng, address: cleanAddr };
+        }
+      }
+    }
+
+    if (gsiRes.status === 'fulfilled' && gsiRes.value.ok) {
+      const items = await gsiRes.value.json();
+      if (Array.isArray(items) && items.length > 0 && items[0]?.geometry?.coordinates) {
+        const [lng, lat] = items[0].geometry.coordinates;
+        if (typeof lat === 'number' && typeof lng === 'number') {
+          return { lat, lng, address: items[0].properties?.title || cleanAddr };
+        }
+      }
+    }
+
+    if (streetLevel && streetLevel !== cleanAddr) {
+      const fallbackRes = await fetch(
+        `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(streetLevel)}`
+      );
+      if (fallbackRes.ok) {
+        const items = await fallbackRes.json();
+        if (Array.isArray(items) && items.length > 0 && items[0]?.geometry?.coordinates) {
+          const [lng, lat] = items[0].geometry.coordinates;
+          if (typeof lat === 'number' && typeof lng === 'number') {
+            return { lat, lng, address: cleanAddr };
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
  * Microlink API（CORS対応・無料・認証不要）を使い、maps.app.goo.gl 等の短縮URLをサーバー側リダイレクト展開して
  * 展開後のURL・ページタイトル・OGP静的地図の緯度経度を抽出する
  */
@@ -275,17 +360,28 @@ async function expandShortGoogleUrlViaMicrolink(googleUrl) {
     if (!data) return null;
 
     const redirectUrls = Array.isArray(json.redirects)
-      ? json.redirects.map((r) => (typeof r === 'string' ? r : r?.url || '')).filter(Boolean)
+      ? json.redirects
+          .map((r) => unwrapGoogleRedirectUrl(typeof r === 'string' ? r : r?.url || ''))
+          .filter(Boolean)
       : [];
-    const allUrls = [data.url, ...redirectUrls.slice().reverse()].filter(Boolean);
+    const unwrappedDataUrl = unwrapGoogleRedirectUrl(data.url || '');
+    const allUrls = [unwrappedDataUrl, ...redirectUrls.slice().reverse()].filter(Boolean);
     const expandedUrl =
+      allUrls.find(
+        (u) =>
+          (/google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) &&
+          (/!3d|-?\d+\.\d+,-?\d+\.\d+|\/place\//i.test(u))
+      ) ||
       allUrls.find((u) => /google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) ||
-      data.url ||
+      unwrappedDataUrl ||
       '';
 
     const rawTitle = (data.title || '').trim();
     const usefulTitle =
-      rawTitle && !/^(?:google\s*(?:maps|マップ)|maps\.app\.goo\.gl)$/i.test(rawTitle)
+      rawTitle &&
+      !/^(?:google\s*(?:maps|マップ)|maps\.app\.goo\.gl|google|before you continue.*)$/i.test(
+        rawTitle
+      )
         ? rawTitle
         : '';
 
@@ -420,39 +516,64 @@ export async function resolveGoogleMapsShareToCandidates(
   let parsed = parseGoogleMapsShareInput(sharePayload);
   let queryName = (manualNameOverride || parsed.name || '').trim();
 
-  // 短縮URL単体（名前も座標もない）場合は、1) Microlinkリダイレクト展開 → 2) Geminiフォールバック の順で自動解決
-  if (parsed.isShortUrlOnly && !queryName && parsed.googleUrl) {
-    let expanded = await expandShortGoogleUrlViaMicrolink(parsed.googleUrl);
-    if (!expanded) {
+  // 座標がまだ不明な GoogleマップURL（短縮URL単体、または「名前・住所＋短縮URL」）なら
+  // リダイレクト展開(Microlink) と 正確な住所ジオコーディング を並列で走らせてピン座標を1点特定する
+  if ((parsed.lat == null || Number.isNaN(parsed.lat)) && (parsed.hasGoogleUrl || parsed.addressHint)) {
+    const [microlinkRes, addrGeoRes] = await Promise.all([
+      parsed.hasGoogleUrl && parsed.googleUrl
+        ? expandShortGoogleUrlViaMicrolink(parsed.googleUrl)
+        : Promise.resolve(null),
+      parsed.addressHint
+        ? geocodeExactJapaneseAddress(parsed.addressHint, queryName)
+        : Promise.resolve(null)
+    ]);
+
+    let expanded = microlinkRes;
+    if (!expanded && parsed.isShortUrlOnly && !queryName && parsed.googleUrl) {
       expanded = await resolveShortGoogleMapsUrlWithGemini(parsed.googleUrl);
     }
+
     if (expanded) {
       const fromExpandedUrl = expanded.expandedUrl
         ? parseSingleGoogleMapsUrl(expanded.expandedUrl)
         : {};
-      const resolvedName = (expanded.name || fromExpandedUrl.name || '').trim();
-      const resolvedAddr = (expanded.address || fromExpandedUrl.addressHint || '').trim();
+      const resolvedName = (queryName || expanded.name || fromExpandedUrl.name || '').trim();
+      const resolvedAddr = (parsed.addressHint || expanded.address || fromExpandedUrl.addressHint || '').trim();
       const resolvedPref =
         expanded.prefecture ||
+        parsed.areaHint ||
         extractPrefectureFromSpot({ address: resolvedAddr, name: resolvedName });
       const resolvedLat =
-        typeof expanded.lat === 'number' ? expanded.lat : fromExpandedUrl.lat ?? null;
+        typeof expanded.lat === 'number'
+          ? expanded.lat
+          : typeof fromExpandedUrl.lat === 'number'
+          ? fromExpandedUrl.lat
+          : addrGeoRes?.lat ?? null;
       const resolvedLng =
-        typeof expanded.lng === 'number' ? expanded.lng : fromExpandedUrl.lng ?? null;
+        typeof expanded.lng === 'number'
+          ? expanded.lng
+          : typeof fromExpandedUrl.lng === 'number'
+          ? fromExpandedUrl.lng
+          : addrGeoRes?.lng ?? null;
 
       parsed = {
         ...parsed,
         name: resolvedName,
-        addressHint: resolvedAddr || parsed.addressHint,
+        addressHint: resolvedAddr,
         areaHint:
-          resolvedPref && ALL_PREFECTURES.includes(resolvedPref)
-            ? resolvedPref
-            : parsed.areaHint,
+          resolvedPref && ALL_PREFECTURES.includes(resolvedPref) ? resolvedPref : parsed.areaHint,
         lat: resolvedLat,
         lng: resolvedLng,
         isShortUrlOnly: !resolvedName && resolvedLat == null
       };
       queryName = resolvedName;
+    } else if (addrGeoRes) {
+      parsed = {
+        ...parsed,
+        lat: addrGeoRes.lat,
+        lng: addrGeoRes.lng,
+        addressHint: parsed.addressHint || addrGeoRes.address || ''
+      };
     }
   }
 
@@ -460,7 +581,8 @@ export async function resolveGoogleMapsShareToCandidates(
     return {
       parsed,
       candidates: [],
-      needsManualName: true
+      needsManualName: true,
+      isExactPinMatch: false
     };
   }
 
@@ -469,9 +591,8 @@ export async function resolveGoogleMapsShareToCandidates(
   const baseLng =
     typeof userLocation?.lng === 'number' ? userLocation.lng : DEFAULT_CENTER.lng;
 
-  let exactPinCandidate = null;
-
-  // フルURL等から正確な座標が取れた場合はGoogleマップ直結スポットを生成
+  // フルURL・展開後URL・共有住所から「その1件」の正確な座標が特定できた場合は、
+  // 全国検索で同名神社を大量に出さず、その場所をバシッと1件だけ返す！
   if (
     typeof parsed.lat === 'number' &&
     typeof parsed.lng === 'number' &&
@@ -481,18 +602,22 @@ export async function resolveGoogleMapsShareToCandidates(
     let resolvedName = queryName;
     let resolvedAddr = parsed.addressHint;
 
-    // 座標のみURLで名前がない場合、近傍250mの既登録社寺からも候補補完
-    if (!resolvedName && Array.isArray(localSpots) && localSpots.length > 0) {
-      const nearLocal = localSpots.find(
-        (s) =>
-          typeof s.lat === 'number' &&
-          typeof s.lng === 'number' &&
-          calcDistanceMeters(s.lat, s.lng, parsed.lat, parsed.lng) < 250
-      );
-      if (nearLocal) {
-        resolvedName = nearLocal.name;
-        if (!resolvedAddr) resolvedAddr = nearLocal.address || '';
-      }
+    const nearLocal =
+      Array.isArray(localSpots) && localSpots.length > 0
+        ? localSpots.find((s) => {
+            if (typeof s.lat !== 'number' || typeof s.lng !== 'number') return false;
+            const d = calcDistanceMeters(s.lat, s.lng, parsed.lat, parsed.lng);
+            if (d >= 240) return false;
+            if (!resolvedName) return true;
+            const normQ = normalizeShrineText(resolvedName);
+            const normS = normalizeShrineText(s.name);
+            return normS === normQ || normS.includes(normQ) || normQ.includes(normS);
+          })
+        : null;
+
+    if (nearLocal) {
+      if (!resolvedName) resolvedName = nearLocal.name;
+      if (!resolvedAddr) resolvedAddr = nearLocal.address || '';
     }
 
     if (!resolvedName || !resolvedAddr) {
@@ -503,68 +628,66 @@ export async function resolveGoogleMapsShareToCandidates(
       }
     }
 
-    // 逆ジオコーディングで施設名が空（町名・番地のみ）の場合も、座標地点スポットとして必ず候補生成
     const finalName = resolvedName || resolvedAddr || 'Googleマップ指定地点';
-    const spotType = inferSpotTypeFromName(finalName);
+    const spotType = nearLocal?.type || inferSpotTypeFromName(finalName);
     const pref = extractPrefectureFromSpot({
-      address: resolvedAddr,
+      address: resolvedAddr || nearLocal?.address,
       lat: parsed.lat,
       lng: parsed.lng
     });
     const distMeters = calcDistanceMeters(baseLat, baseLng, parsed.lat, parsed.lng);
-    exactPinCandidate = {
-      id: `gmap-pin-${parsed.lat.toFixed(5)}-${parsed.lng.toFixed(5)}`,
-      name: finalName,
+
+    const exactSpot = {
+      id: nearLocal?.id || `gmap-pin-${parsed.lat.toFixed(5)}-${parsed.lng.toFixed(5)}`,
+      name: nearLocal?.name && !queryName ? nearLocal.name : finalName,
       type: spotType,
-      denomination: spotType === 'temple' ? '仏教（寺院）' : '神道（神社）',
-      address: resolvedAddr || pref || 'Googleマップ指定地点',
+      denomination:
+        nearLocal?.denomination ||
+        (spotType === 'temple' ? '仏教（寺院）' : '神道（神社）'),
+      address: resolvedAddr || nearLocal?.address || pref || 'Googleマップ指定地点',
       prefecture: pref,
       lat: parsed.lat,
       lng: parsed.lng,
       distanceMeters: distMeters,
       distanceKm: Math.round((distMeters / 1000) * 10) / 10,
       distanceLabel: formatDistanceLabel(distMeters),
-      sampleGoshuin: buildDefaultSampleGoshuin(finalName, spotType),
+      sampleGoshuin:
+        nearLocal?.sampleGoshuin && nearLocal.sampleGoshuin.length > 0
+          ? nearLocal.sampleGoshuin
+          : buildDefaultSampleGoshuin(finalName, spotType),
       source: 'Googleマップ指定地点'
+    };
+
+    return {
+      parsed: { ...parsed, name: exactSpot.name },
+      candidates: [exactSpot],
+      needsManualName: false,
+      isExactPinMatch: true
     };
   }
 
-  // 名前・地域の手がかりからアプリ内5ソース全国検索を実行
+  // 座標・詳細住所が一切ない検索ワード型URL (?q=神社名 のみ) の場合のみ全国検索へフォールバック
   const searchCandidates = queryName
     ? await searchShrineCandidatesByName(queryName, parsed.areaHint, localSpots, userLocation)
     : [];
 
-  const merged = [];
-  if (exactPinCandidate) {
-    // 検索結果側に同一施設（250m以内）の詳細住所・既存IDがあれば引き継ぐ
-    const nearbyMatch = searchCandidates.find(
-      (c) => calcDistanceMeters(c.lat, c.lng, exactPinCandidate.lat, exactPinCandidate.lng) < 250
-    );
-    if (nearbyMatch) {
-      merged.push({
-        ...nearbyMatch,
-        address:
-          exactPinCandidate.address && exactPinCandidate.address !== 'Googleマップ指定地点'
-            ? exactPinCandidate.address
-            : nearbyMatch.address,
-        source: 'Googleマップ共有'
-      });
-    } else {
-      merged.push(exactPinCandidate);
-    }
-  }
-
-  for (const c of searchCandidates) {
-    if (
-      !merged.some((m) => calcDistanceMeters(m.lat, m.lng, c.lat, c.lng) < 200 && m.name === c.name)
-    ) {
-      merged.push(c);
+  let filtered = searchCandidates;
+  if (parsed.addressHint) {
+    const cityMatch = parsed.addressHint.match(/([^\s都道県府]+[市区町村郡])/);
+    if (cityMatch && cityMatch[1]) {
+      const cityScoped = searchCandidates.filter((c) =>
+        (c.address || '').includes(cityMatch[1])
+      );
+      if (cityScoped.length > 0) {
+        filtered = cityScoped;
+      }
     }
   }
 
   return {
     parsed: { ...parsed, name: queryName || parsed.name },
-    candidates: merged,
-    needsManualName: false
+    candidates: filtered.slice(0, 8),
+    needsManualName: false,
+    isExactPinMatch: filtered.length === 1
   };
 }

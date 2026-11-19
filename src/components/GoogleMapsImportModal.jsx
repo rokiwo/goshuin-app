@@ -346,7 +346,11 @@ export default function GoogleMapsImportModal({
             <div className="space-y-2">
               <p className="text-xs font-serif font-bold text-sumi flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-tera" />
-                <span>一致した候補（{candidates.length}件）</span>
+                <span>
+                  {candidates.length === 1
+                    ? 'URLの神社・お寺を特定しました（1件）'
+                    : `一致した候補（${candidates.length}件）`}
+                </span>
               </p>
 
               <div className="space-y-2">

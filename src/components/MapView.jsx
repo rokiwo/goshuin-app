@@ -842,7 +842,11 @@ export default function MapView({
                 <span className="flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-kin" />
                   {isSearchingName
-                    ? `「${searchQuery.trim()}」を全国検索中...`
+                    ? isGoogleMapsInput(searchQuery)
+                      ? 'GoogleマップURLの地点を特定中...'
+                      : `「${searchQuery.trim()}」を全国検索中...`
+                    : isGoogleMapsInput(searchQuery) && searchResults.length === 1
+                    ? 'GoogleマップURLの場所を特定しました（★で登録・タップで移動）'
                     : `候補 ${searchResults.length}件（タップで地図移動・★でお気に入り追加）`}
                 </span>
                 <button
