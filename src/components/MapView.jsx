@@ -20,14 +20,10 @@ import {
 import {
   searchShrineCandidatesByName,
   isJapaneseAddressQuery,
-  inferSpotTypeFromName,
-  buildDefaultSampleGoshuin,
   filterAndGroupCandidatesByPrefecture
 } from '../services/shrineSearchService.js';
-import { lookupShrinesAtTapCoordinate } from '../services/mapTapLookupService.js';
 import {
   toggleFavoriteSpot,
-  saveFavoriteSpot,
   extractPrefectureFromSpot,
   groupFavoritesByPrefecture
 } from '../db/database.js';
@@ -143,24 +139,9 @@ const userLocationIcon = L.divIcon({
 });
 
 /**
- * 地図タップ地点を示すゴールドのターゲットマーカー
+ * 地図の中心座標をスムーズに移動させる内部コントローラー＋ドラッグ検知＋空き領域クリック検出＋県別フィット
  */
-const tapTargetIcon = L.divIcon({
-  className: 'bg-transparent border-0',
-  html: `
-    <div style="position:relative;width:28px;height:28px;display:flex;align-items:center;justify-content:center;">
-      <div style="position:absolute;width:28px;height:28px;border-radius:9999px;background:rgba(245,158,11,0.38);animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite;"></div>
-      <div style="position:relative;width:16px;height:16px;border-radius:9999px;background:#f59e0b;border:2.5px solid #1a1a1a;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;color:#1a1a1a;font-size:9px;font-weight:900;">★</div>
-    </div>
-  `,
-  iconSize: [28, 28],
-  iconAnchor: [14, 14]
-});
-
-/**
- * 地図の中心座標をスムーズに移動させる内部コントローラー＋ドラッグ検知＋タップ検出＋県別フィット
- */
-function MapController({ targetCoord, boundsTarget, onMapMoved, onMapMovestart, onMapTap }) {
+function MapController({ targetCoord, boundsTarget, onMapMoved, onMapMovestart, onMapBlankClick }) {
   const map = useMap();
   useEffect(() => {
     if (targetCoord && typeof targetCoord.lat === 'number' && typeof targetCoord.lng === 'number') {
@@ -207,9 +188,9 @@ function MapController({ targetCoord, boundsTarget, onMapMoved, onMapMovestart, 
         onMapMoved({ lat: c.lat, lng: c.lng, zoom: map.getZoom() });
       }
     },
-    click: (e) => {
-      if (onMapTap && e?.latlng) {
-        onMapTap({ lat: e.latlng.lat, lng: e.latlng.lng });
+    click: () => {
+      if (onMapBlankClick) {
+        onMapBlankClick();
       }
     }
   });
@@ -264,12 +245,7 @@ export default function MapView({
   const [isToolsExpanded, setIsToolsExpanded] = useState(false);
   const [isBottomCardsMinimized, setIsBottomCardsMinimized] = useState(false);
 
-  // ★アプリ上のGoogleマップ画像タイルを直接タップして即「★お気に入り登録」できるステート
-  const [tapLookupState, setTapLookupState] = useState(null);
-  const lastMarkerClickRef = useRef(0);
   const autoSearchTimerRef = useRef(null);
-  const tapRequestIdRef = useRef(0);
-  const latestSpotsRef = useRef([]);
 
   useEffect(() => {
     return () => {
@@ -440,96 +416,10 @@ export default function MapView({
     }
   };
 
-  // 地図上の任意のGoogleマップ地点をタップして神社・お寺を即特定
-  const handleMapTap = async (coord) => {
-    if (Date.now() - lastMarkerClickRef.current < 260) return;
-    if (isSearchOpen) {
-      setIsSearchOpen(false);
-      return;
-    }
-    if (isToolsExpanded) {
-      setIsToolsExpanded(false);
-    }
-
-    const reqId = ++tapRequestIdRef.current;
-    setTapLookupState({
-      coord,
-      loading: true,
-      candidates: [],
-      fallbackAddress: '',
-      prefecture: '',
-      manualName: '',
-      manualType: 'shrine',
-      showManualForm: false
-    });
-
-    try {
-      const res = await lookupShrinesAtTapCoordinate(
-        coord.lat,
-        coord.lng,
-        latestSpotsRef.current,
-        userLocation
-      );
-      if (tapRequestIdRef.current !== reqId) return;
-      setTapLookupState((prev) =>
-        prev
-          ? {
-              ...prev,
-              loading: false,
-              candidates: res.candidates || [],
-              fallbackAddress: res.fallbackAddress || '',
-              prefecture: res.prefecture || extractPrefectureFromSpot(coord),
-              showManualForm: (res.candidates || []).length === 0
-            }
-          : null
-      );
-    } catch {
-      if (tapRequestIdRef.current !== reqId) return;
-      setTapLookupState((prev) =>
-        prev
-          ? {
-              ...prev,
-              loading: false,
-              candidates: [],
-              showManualForm: true
-            }
-          : null
-      );
-    }
-  };
-
-  // タップ地点を手入力の名前で即「★お気に入り登録」＆マップピン反映
-  const handleSaveManualTapFavorite = async (e) => {
-    e?.preventDefault?.();
-    if (!tapLookupState) return;
-    const cleanName = tapLookupState.manualName.trim();
-    if (!cleanName) return;
-
-    const spotType = tapLookupState.manualType || inferSpotTypeFromName(cleanName);
-    const { lat, lng } = tapLookupState.coord;
-    const pref =
-      tapLookupState.prefecture ||
-      extractPrefectureFromSpot({ address: tapLookupState.fallbackAddress, lat, lng });
-
-    const newSpot = {
-      id: `custom-tap-${lat.toFixed(5)}-${lng.toFixed(5)}`,
-      name: cleanName,
-      type: spotType,
-      denomination: spotType === 'temple' ? '仏教（寺院）' : '神道（神社）',
-      address: tapLookupState.fallbackAddress || pref || '地図タップ登録地点',
-      prefecture: pref,
-      lat,
-      lng,
-      sampleGoshuin: buildDefaultSampleGoshuin(cleanName, spotType),
-      hasGoshuin: true
-    };
-
-    setPinnedSearchSpots((prev) => [
-      newSpot,
-      ...prev.filter((p) => p.id !== newSpot.id)
-    ]);
-    await saveFavoriteSpot(newSpot);
-    setTapLookupState(null);
+  // 地図上の空白エリアタップ時は検索ドロップダウン・絞込パネルをスムーズに閉じる
+  const handleMapBlankClick = () => {
+    if (isSearchOpen) setIsSearchOpen(false);
+    if (isToolsExpanded) setIsToolsExpanded(false);
   };
 
   // 既存の周辺スポット＋検索でピン留めしたスポットを統合
@@ -538,7 +428,6 @@ export default function MapView({
     const extras = pinnedSearchSpots.filter((p) => !seen.has(p.id));
     return [...extras, ...spots];
   }, [spots, pinnedSearchSpots]);
-  latestSpotsRef.current = allMapSpots;
 
   // お気に入り社寺の都道府県を解決（ユーザー手動変更やDB保存済みの県名を最優先）
   const resolveSpotPrefecture = React.useCallback(
@@ -1082,7 +971,7 @@ export default function MapView({
               boundsTarget={boundsTarget}
               onMapMoved={handleMapMoved}
               onMapMovestart={handleMapMovestart}
-              onMapTap={handleMapTap}
+              onMapBlankClick={handleMapBlankClick}
             />
 
             {/* 検索範囲サークル（お気に入り県別表示時は非表示にして見やすくする） */}
@@ -1103,14 +992,6 @@ export default function MapView({
             {/* 現在地ピン */}
             <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon} />
 
-            {/* 地図直接タップ地点のターゲットマーカー */}
-            {tapLookupState?.coord && (
-              <Marker
-                position={[tapLookupState.coord.lat, tapLookupState.coord.lng]}
-                icon={tapTargetIcon}
-              />
-            )}
-
             {/* 各寺社のカスタムピン */}
             {filteredSpots.map((spot) => {
               const visitRecord = visitMap[spot.id];
@@ -1123,8 +1004,6 @@ export default function MapView({
                   icon={createCustomSpotIcon(spot, visitRecord, isSelected, isFavorite)}
                   eventHandlers={{
                     click: () => {
-                      lastMarkerClickRef.current = Date.now();
-                      setTapLookupState(null);
                       onSelectSpot(spot);
                     }
                   }}
@@ -1134,180 +1013,8 @@ export default function MapView({
           </MapContainer>
       </div>
 
-      {/* ★Googleマップ直接タップ時の「この地点の神社・お寺をワンタップ★お気に入り」パネル */}
-      {tapLookupState && (
-        <div className="absolute bottom-2.5 left-2.5 right-2.5 z-30 pointer-events-auto rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-amber-500 shadow-2xl overflow-hidden animate-slide-up">
-          <div className="bg-sumi text-washi px-3 py-2 flex items-center justify-between gap-2">
-            <span className="text-[11px] font-serif font-bold flex items-center gap-1.5 text-amber-300">
-              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-              <span>タップした場所の社寺を★登録</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setTapLookupState(null)}
-              className="px-2 py-0.5 rounded-full bg-sumi-light text-washi text-[10px] font-serif font-bold flex items-center gap-0.5 border border-white/20"
-            >
-              <X className="w-3 h-3" />
-              <span>閉じる</span>
-            </button>
-          </div>
-
-          <div className="p-2.5 space-y-2 max-h-56 overflow-y-auto">
-            {tapLookupState.loading ? (
-              <div className="py-3 flex items-center justify-center gap-2 text-xs font-serif font-bold text-sumi">
-                <Loader2 className="w-4 h-4 text-shuiro animate-spin" />
-                <span>マップ上の神社・お寺を取得中...</span>
-              </div>
-            ) : !tapLookupState.showManualForm && tapLookupState.candidates.length > 0 ? (
-              <>
-                <div className="space-y-1.5">
-                  {tapLookupState.candidates.slice(0, 4).map((cand) => {
-                    const isFav = Boolean(favoriteMap[cand.id]);
-                    const pref = cand.prefecture || extractPrefectureFromSpot(cand);
-                    return (
-                      <div
-                        key={cand.id}
-                        className="p-2 rounded-xl bg-washi-dark/70 border border-kin/40 flex items-center justify-between gap-2"
-                      >
-                        <div
-                          onClick={() => {
-                            handlePickSearchResult(cand);
-                            setTapLookupState(null);
-                          }}
-                          className="min-w-0 flex-1 cursor-pointer"
-                        >
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-washi ${
-                                cand.type === 'temple' ? 'bg-tera' : 'bg-shuiro'
-                              }`}
-                            >
-                              {cand.type === 'temple' ? '寺院' : '神社'}
-                            </span>
-                            {pref && (
-                              <span className="px-1.5 py-0.5 rounded bg-kin/25 text-sumi font-serif font-bold text-[10px]">
-                                {pref}
-                              </span>
-                            )}
-                            <span className="font-serif font-bold text-xs text-sumi truncate">
-                              {cand.name}
-                            </span>
-                            {cand.distanceFromTapLabel && (
-                              <span className="text-[10px] text-kin-dark font-medium">
-                                (近く {cand.distanceFromTapLabel})
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-sumi-muted truncate mt-0.5">
-                            {cand.address}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => handleToggleFav(e, cand)}
-                            className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition ${
-                              isFav
-                                ? 'bg-amber-400 text-sumi border-amber-600 shadow-sm'
-                                : 'bg-sumi text-kin border-kin/60'
-                            }`}
-                          >
-                            <Star
-                              className={`w-3 h-3 ${
-                                isFav ? 'fill-sumi text-sumi' : 'text-amber-400'
-                              }`}
-                            />
-                            <span>{isFav ? '登録済' : '★追加'}</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handlePickSearchResult(cand);
-                              setTapLookupState(null);
-                            }}
-                            className="px-2 py-1.5 rounded-xl bg-washi border border-kin/50 text-[10px] font-serif font-bold text-shuiro active:scale-95 transition"
-                          >
-                            詳細
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTapLookupState((prev) => (prev ? { ...prev, showManualForm: true } : null))
-                  }
-                  className="w-full text-center text-[10px] text-shuiro font-serif font-bold hover:underline pt-0.5"
-                >
-                  お目当てと違う場合は、社寺名を手入力してこの位置に登録 →
-                </button>
-              </>
-            ) : (
-              <form onSubmit={handleSaveManualTapFavorite} className="space-y-2">
-                <p className="text-[10px] text-sumi-muted">
-                  この地点のデータが見つからない場合も、地図に載っている名前を入れてそのまま登録できます
-                  {tapLookupState.fallbackAddress ? `（${tapLookupState.fallbackAddress}）` : ''}
-                </p>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex rounded-xl overflow-hidden border border-kin/50 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTapLookupState((p) => (p ? { ...p, manualType: 'shrine' } : null))
-                      }
-                      className={`px-2 py-1.5 text-[10px] font-serif font-bold ${
-                        tapLookupState.manualType === 'shrine'
-                          ? 'bg-shuiro text-washi'
-                          : 'bg-washi text-sumi-muted'
-                      }`}
-                    >
-                      神社
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTapLookupState((p) => (p ? { ...p, manualType: 'temple' } : null))
-                      }
-                      className={`px-2 py-1.5 text-[10px] font-serif font-bold ${
-                        tapLookupState.manualType === 'temple'
-                          ? 'bg-tera text-washi'
-                          : 'bg-washi text-sumi-muted'
-                      }`}
-                    >
-                      寺院
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={tapLookupState.manualName}
-                    onChange={(e) =>
-                      setTapLookupState((p) => (p ? { ...p, manualName: e.target.value } : null))
-                    }
-                    placeholder="地図に書かれた神社・お寺名"
-                    className="flex-1 min-w-0 rounded-xl border border-kin/60 bg-washi px-2.5 py-1.5 text-xs font-serif font-bold text-sumi focus:outline-none focus:border-shuiro"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!tapLookupState.manualName.trim()}
-                    className="px-3 py-1.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-[11px] font-serif font-bold shrink-0 active:scale-95 transition disabled:opacity-50"
-                  >
-                    ★登録
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 下部横スクロール：周辺寺社クイックカードリスト（折りたたみ可能・タップ選択時は格納） */}
-      {!tapLookupState && (
-        <div className="absolute bottom-2.5 left-0 right-0 z-20 pointer-events-none flex flex-col items-center">
+      {/* 下部横スクロール：周辺寺社クイックカードリスト（折りたたみ可能） */}
+      <div className="absolute bottom-2.5 left-0 right-0 z-20 pointer-events-none flex flex-col items-center">
           {/* カードリストをたたむ / 広げるミニつまみ */}
           <button
             type="button"
@@ -1410,8 +1117,7 @@ export default function MapView({
               })}
             </div>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
