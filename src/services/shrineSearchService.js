@@ -66,7 +66,7 @@ const PREF_CODE_MAP = {
  * 国土地理院の5桁（または4桁）市区町村コードから都道府県名を取得
  * 例: "28110" -> 28 -> "兵庫県", "1203" -> 1 -> "北海道"
  */
-function getPrefectureFromAddressCode(addressCode = '') {
+export function getPrefectureFromAddressCode(addressCode = '') {
   const codeStr = String(addressCode).trim();
   if (!codeStr || !/^\d+$/.test(codeStr)) return '';
   const padded = codeStr.length === 4 ? `0${codeStr}` : codeStr;

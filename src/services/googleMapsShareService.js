@@ -10,7 +10,8 @@ import {
   buildDefaultSampleGoshuin,
   calcDistanceMeters,
   formatDistanceLabel,
-  normalizeShrineText
+  normalizeShrineText,
+  getPrefectureFromAddressCode
 } from './shrineSearchService.js';
 
 const GOOGLE_MAPS_URL_REGEX =
@@ -223,32 +224,62 @@ export function parseGoogleMapsShareInput({ title = '', text = '', url = '', raw
 }
 
 /**
- * 座標からOpenStreetMap Nominatimで日本語の施設名・住所を補完
+ * 座標から国土地理院逆ジオコーダ＋Nominatimで日本語の施設名・都道府県・住所を正確に補完
  */
 async function reverseGeocodeJapaneseSpot(lat, lng) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(
-        lat
-      )}&lon=${encodeURIComponent(lng)}&zoom=18&addressdetails=1&accept-language=ja`,
-      { signal: controller.signal }
-    );
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const [nomRes, gsiRes] = await Promise.allSettled([
+      fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(
+          lat
+        )}&lon=${encodeURIComponent(lng)}&zoom=18&addressdetails=1&accept-language=ja`,
+        { signal: controller.signal }
+      ),
+      fetch(
+        `https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=${encodeURIComponent(
+          lat
+        )}&lon=${encodeURIComponent(lng)}`,
+        { signal: controller.signal }
+      )
+    ]);
     clearTimeout(timer);
-    if (!res.ok) return null;
 
-    const item = await res.json();
-    const addr = item.address || {};
-    const pref = addr.province || addr.state || '';
-    const city = addr.city || addr.county || addr.town || addr.village || '';
-    const area = addr.suburb || addr.ward || addr.quarter || addr.neighbourhood || addr.road || '';
-    const combinedAddr = `${pref}${city}${area}`.trim() || item.display_name || '';
+    let gsiPref = '';
+    let gsiTown = '';
+    if (gsiRes.status === 'fulfilled' && gsiRes.value.ok) {
+      const gsiJson = await gsiRes.value.json();
+      const r = gsiJson?.results;
+      if (r?.muniCd) {
+        gsiPref = getPrefectureFromAddressCode(r.muniCd);
+      }
+      if (r?.lv01Nm && r.lv01Nm !== '−') {
+        gsiTown = r.lv01Nm;
+      }
+    }
+
+    let nomName = '';
+    let nomAddr = '';
+    let nomPref = '';
+    if (nomRes.status === 'fulfilled' && nomRes.value.ok) {
+      const item = await nomRes.value.json();
+      const addr = item.address || {};
+      nomPref = addr.province || addr.state || '';
+      const city = addr.city || addr.county || addr.town || addr.village || '';
+      const area = addr.suburb || addr.ward || addr.quarter || addr.neighbourhood || addr.road || '';
+      nomAddr = `${nomPref}${city}${area}`.trim() || item.display_name || '';
+      nomName = item.name || '';
+    }
+
+    const pref = gsiPref || nomPref;
+    const address = nomAddr || `${gsiPref}${gsiTown}`.trim();
+    if (!address && !pref && !nomName) return null;
 
     return {
-      name: item.name || '',
-      address: combinedAddr,
-      prefecture: pref || extractPrefectureFromSpot({ address: combinedAddr, lat, lng })
+      name: nomName,
+      address,
+      prefecture: pref || extractPrefectureFromSpot({ address, lat, lng })
     };
   } catch {
     return null;
@@ -340,81 +371,123 @@ async function geocodeExactJapaneseAddress(addressHint, shrineName = '') {
 }
 
 /**
+ * Microlink API 1回分の呼び出し＆メタデータ解析ヘルパー
+ */
+async function fetchMicrolinkMetadata(googleUrl, usePrerender = false) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), usePrerender ? 9000 : 6000);
+  const endpoint = `https://api.microlink.io/?url=${encodeURIComponent(googleUrl)}${
+    usePrerender ? '&prerender=true' : ''
+  }`;
+  const res = await fetch(endpoint, { signal: controller.signal });
+  clearTimeout(timer);
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const data = json?.data;
+  if (!data) return null;
+
+  const redirectUrls = Array.isArray(json.redirects)
+    ? json.redirects
+        .map((r) => unwrapGoogleRedirectUrl(typeof r === 'string' ? r : r?.url || ''))
+        .filter(Boolean)
+    : [];
+  const unwrappedDataUrl = unwrapGoogleRedirectUrl(data.url || '');
+  const allUrls = [unwrappedDataUrl, ...redirectUrls.slice().reverse()].filter(Boolean);
+  const expandedUrl =
+    allUrls.find(
+      (u) =>
+        (/google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) &&
+        (/!3d|-?\d+\.\d+,-?\d+\.\d+|\/place\//i.test(u))
+    ) ||
+    allUrls.find((u) => /google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) ||
+    unwrappedDataUrl ||
+    '';
+
+  const rawTitle = (data.title || '').trim();
+  const usefulTitle =
+    rawTitle &&
+    !/^(?:google\s*(?:maps|マップ)|maps\.app\.goo\.gl|google|before you continue.*)$/i.test(
+      rawTitle
+    )
+      ? rawTitle
+      : '';
+
+  const rawDesc = (data.description || '').trim();
+  const usefulDesc =
+    rawDesc && !/find local businesses|view maps and get driving directions/i.test(rawDesc)
+      ? rawDesc
+      : '';
+
+  // OGP staticmap 画像URLの center= または markers= から座標を抽出
+  let lat = null;
+  let lng = null;
+  const imgUrl = data.image?.url || '';
+  const coordMatch = imgUrl.match(
+    /[?&](?:center|markers)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/i
+  );
+  if (coordMatch) {
+    const cLat = parseFloat(coordMatch[1]);
+    const cLng = parseFloat(coordMatch[2]);
+    if (Math.abs(cLat) > 0.1 && Math.abs(cLng) > 0.1) {
+      lat = cLat;
+      lng = cLng;
+    }
+  }
+
+  const fromExpandedUrl = expandedUrl ? parseSingleGoogleMapsUrl(expandedUrl) : {};
+  const fromTitleAndDesc =
+    usefulTitle || usefulDesc
+      ? parseGoogleMapsShareInput({ rawText: [usefulTitle, usefulDesc].filter(Boolean).join('\n') })
+      : {};
+
+  const name = (fromExpandedUrl.name || fromTitleAndDesc.name || '').trim();
+  const addressHint = (
+    fromExpandedUrl.addressHint ||
+    fromTitleAndDesc.addressHint ||
+    ''
+  ).trim();
+  const finalLat = typeof fromExpandedUrl.lat === 'number' ? fromExpandedUrl.lat : lat;
+  const finalLng = typeof fromExpandedUrl.lng === 'number' ? fromExpandedUrl.lng : lng;
+
+  if (!name && finalLat == null && !addressHint) return null;
+  return {
+    name,
+    address: addressHint,
+    prefecture: fromTitleAndDesc.areaHint || '',
+    lat: finalLat,
+    lng: finalLng,
+    expandedUrl
+  };
+}
+
+/**
  * Microlink API（CORS対応・無料・認証不要）を使い、maps.app.goo.gl 等の短縮URLをサーバー側リダイレクト展開して
- * 展開後のURL・ページタイトル・OGP静的地図の緯度経度を抽出する
+ * 展開後のURL・ページタイトル・OGP静的地図の緯度経度を抽出する（座標未取得時は prerender=true でもう一度試行）
  */
 async function expandShortGoogleUrlViaMicrolink(googleUrl) {
   if (!googleUrl) return null;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 7000);
-    const res = await fetch(
-      `https://api.microlink.io/?url=${encodeURIComponent(googleUrl)}`,
-      { signal: controller.signal }
-    );
-    clearTimeout(timer);
-    if (!res.ok) return null;
-
-    const json = await res.json();
-    const data = json?.data;
-    if (!data) return null;
-
-    const redirectUrls = Array.isArray(json.redirects)
-      ? json.redirects
-          .map((r) => unwrapGoogleRedirectUrl(typeof r === 'string' ? r : r?.url || ''))
-          .filter(Boolean)
-      : [];
-    const unwrappedDataUrl = unwrapGoogleRedirectUrl(data.url || '');
-    const allUrls = [unwrappedDataUrl, ...redirectUrls.slice().reverse()].filter(Boolean);
-    const expandedUrl =
-      allUrls.find(
-        (u) =>
-          (/google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) &&
-          (/!3d|-?\d+\.\d+,-?\d+\.\d+|\/place\//i.test(u))
-      ) ||
-      allUrls.find((u) => /google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) ||
-      unwrappedDataUrl ||
-      '';
-
-    const rawTitle = (data.title || '').trim();
-    const usefulTitle =
-      rawTitle &&
-      !/^(?:google\s*(?:maps|マップ)|maps\.app\.goo\.gl|google|before you continue.*)$/i.test(
-        rawTitle
-      )
-        ? rawTitle
-        : '';
-
-    let lat = null;
-    let lng = null;
-    const imgUrl = data.image?.url || '';
-    const centerMatch = imgUrl.match(/[?&]center=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/i);
-    if (centerMatch) {
-      const cLat = parseFloat(centerMatch[1]);
-      const cLng = parseFloat(centerMatch[2]);
-      if (Math.abs(cLat) > 0.1 && Math.abs(cLng) > 0.1) {
-        lat = cLat;
-        lng = cLng;
-      }
+    const first = await fetchMicrolinkMetadata(googleUrl, false);
+    if (first && typeof first.lat === 'number' && typeof first.lng === 'number') {
+      return first;
     }
-
-    const fromExpandedUrl = expandedUrl ? parseSingleGoogleMapsUrl(expandedUrl) : {};
-    const fromTitle = usefulTitle ? parseGoogleMapsShareInput({ rawText: usefulTitle }) : {};
-
-    const name = (fromExpandedUrl.name || fromTitle.name || '').trim();
-    const addressHint = (fromExpandedUrl.addressHint || fromTitle.addressHint || '').trim();
-    const finalLat = typeof fromExpandedUrl.lat === 'number' ? fromExpandedUrl.lat : lat;
-    const finalLng = typeof fromExpandedUrl.lng === 'number' ? fromExpandedUrl.lng : lng;
-
-    if (!name && finalLat == null) return null;
-    return {
-      name,
-      address: addressHint,
-      prefecture: fromTitle.areaHint || '',
-      lat: finalLat,
-      lng: finalLng,
-      expandedUrl
-    };
+    if (first && first.address) {
+      return first;
+    }
+    // 通常取得で座標も住所も取れなかった場合は prerender=true でJS描画後の地図座標・タイトルも確認
+    const rendered = await fetchMicrolinkMetadata(googleUrl, true);
+    if (rendered) {
+      return {
+        name: rendered.name || first?.name || '',
+        address: rendered.address || first?.address || '',
+        prefecture: rendered.prefecture || first?.prefecture || '',
+        lat: typeof rendered.lat === 'number' ? rendered.lat : first?.lat ?? null,
+        lng: typeof rendered.lng === 'number' ? rendered.lng : first?.lng ?? null,
+        expandedUrl: rendered.expandedUrl || first?.expandedUrl || ''
+      };
+    }
+    return first;
   } catch {
     return null;
   }
@@ -575,6 +648,19 @@ export async function resolveGoogleMapsShareToCandidates(
         addressHint: parsed.addressHint || addrGeoRes.address || ''
       };
     }
+
+    // Microlink等が住所のみ返して座標がまだない場合は、その住所もピンポイント座標へ変換
+    if (
+      (parsed.lat == null || Number.isNaN(parsed.lat)) &&
+      parsed.addressHint &&
+      !addrGeoRes
+    ) {
+      const geoFromExpanded = await geocodeExactJapaneseAddress(parsed.addressHint, queryName);
+      if (geoFromExpanded) {
+        parsed.lat = geoFromExpanded.lat;
+        parsed.lng = geoFromExpanded.lng;
+      }
+    }
   }
 
   if (parsed.isShortUrlOnly && !queryName) {
@@ -620,21 +706,25 @@ export async function resolveGoogleMapsShareToCandidates(
       if (!resolvedAddr) resolvedAddr = nearLocal.address || '';
     }
 
+    let revPref = '';
     if (!resolvedName || !resolvedAddr) {
       const rev = await reverseGeocodeJapaneseSpot(parsed.lat, parsed.lng);
       if (rev) {
         if (!resolvedName && rev.name) resolvedName = rev.name;
         if (!resolvedAddr && rev.address) resolvedAddr = rev.address;
+        if (rev.prefecture) revPref = rev.prefecture;
       }
     }
 
     const finalName = resolvedName || resolvedAddr || 'Googleマップ指定地点';
     const spotType = nearLocal?.type || inferSpotTypeFromName(finalName);
-    const pref = extractPrefectureFromSpot({
-      address: resolvedAddr || nearLocal?.address,
-      lat: parsed.lat,
-      lng: parsed.lng
-    });
+    const pref =
+      revPref ||
+      extractPrefectureFromSpot({
+        address: resolvedAddr || nearLocal?.address,
+        lat: parsed.lat,
+        lng: parsed.lng
+      });
     const distMeters = calcDistanceMeters(baseLat, baseLng, parsed.lat, parsed.lng);
 
     const exactSpot = {

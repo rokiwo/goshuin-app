@@ -685,7 +685,7 @@ export default function MapView({
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
       {/* 上部フローティング：普段は「検索バー1本＋右側ミニボタン」だけでマップを最大限広く見せる */}
-      <div className="absolute top-2 left-2.5 right-2.5 z-20 flex flex-col gap-1.5 pointer-events-none">
+      <div className="absolute top-2 left-2.5 right-2.5 z-30 flex flex-col gap-1.5 pointer-events-none">
         {/* ★1行目：全国神社・お寺検索ボックス ＋ 絞り込み開閉ボタン ＋ 本家Gマップ切替ボタン */}
         <div className="relative pointer-events-auto">
           <div className="flex items-center gap-1.5">
@@ -1148,8 +1148,8 @@ export default function MapView({
         )}
       </div>
 
-      {/* 右端フローティングのミニ操作ボタン（ピン地図時のみ表示してGマップを邪魔しない） */}
-      {!isGoogleEmbedMode && (
+      {/* 右端フローティングのミニ操作ボタン（ピン地図時のみ表示。検索ドロップダウンや絞込展開時は隠して重なりを防止） */}
+      {!isGoogleEmbedMode && !isSearchOpen && !isToolsExpanded && (
         <div
           className={`absolute right-2.5 z-20 flex flex-col gap-1.5 pointer-events-auto transition-all ${
             filterType === 'favorite' ? 'top-24' : 'top-16'
