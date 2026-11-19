@@ -695,12 +695,23 @@ export default function MapView({
                 type="text"
                 value={searchQuery}
                 onFocus={() => {
-                  if (searchQuery.trim().length >= 2) setIsSearchOpen(true);
+                  setIsSearchOpen(true);
                 }}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="神社・お寺名やGマップURLで検索"
                 className="flex-1 bg-transparent text-xs font-serif font-bold text-sumi placeholder:text-sumi-muted/75 focus:outline-none min-w-0"
               />
+              {!searchQuery && onOpenGmapImport && (
+                <button
+                  type="button"
+                  onClick={() => onOpenGmapImport('')}
+                  className="px-2 py-0.5 rounded-lg bg-amber-400 text-sumi border border-amber-600 text-[10px] font-serif font-bold flex items-center gap-0.5 shrink-0 active:scale-95 transition whitespace-nowrap"
+                  title="Googleマップの共有URLを貼り付けてお気に入り登録"
+                >
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  <span>URL</span>
+                </button>
+              )}
               {isSearchingName && (
                 <Loader2 className="w-3.5 h-3.5 text-shuiro animate-spin shrink-0" />
               )}
@@ -796,6 +807,31 @@ export default function MapView({
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* 空検索フォーカス時のワンタップ「Googleマップ共有URL貼付」クイックバー */}
+          {isSearchOpen && searchQuery.trim().length < 2 && onOpenGmapImport && (
+            <div className="mt-1.5 p-2 rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-xl flex items-center justify-between gap-2 animate-slide-up">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSearchOpen(false);
+                  onOpenGmapImport('');
+                }}
+                className="flex-1 py-1.5 px-3 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-[11px] font-serif font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition"
+              >
+                <Link2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Googleマップの共有リンクを貼って★登録する</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSearchOpen(false)}
+                className="p-1.5 rounded-xl bg-sumi/10 text-sumi"
+                title="閉じる"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 

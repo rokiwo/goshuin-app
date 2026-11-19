@@ -39,9 +39,13 @@ export const AVAILABLE_GEMINI_MODELS = [
  * 現在設定されているGemini APIキーを取得
  */
 export function getGeminiApiKey() {
-  const saved = localStorage.getItem(STORAGE_KEY_API);
-  if (saved && saved.trim()) return saved.trim();
-  if (import.meta.env.VITE_GEMINI_API_KEY) {
+  try {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_API) : '';
+    if (saved && saved.trim()) return saved.trim();
+  } catch {
+    // ignore storage errors
+  }
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
     return String(import.meta.env.VITE_GEMINI_API_KEY).trim();
   }
   return '';

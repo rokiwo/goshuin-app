@@ -222,11 +222,14 @@ export default function GoogleMapsImportModal({
           {/* 使い方＆本家Googleマップ起動ボタン */}
           <div className="rounded-2xl bg-washi-dark/80 border border-kin/40 p-3 space-y-2">
             <p className="text-[11px] text-sumi leading-relaxed">
-              本家Googleマップで探した神社を
-              <strong className="text-shuiro">「共有 → 御朱印めぐり」（Android）</strong>
-              または
-              <strong className="text-shuiro">「共有リンクをコピーして貼り付け」</strong>
-              すると、そのまま ★お気に入り に追加できます。
+              Googleマップで探した神社の
+              <strong className="text-shuiro">「共有 → コピー（リンクをコピー）」</strong>
+              をして下の
+              <strong className="text-shuiro">「貼り付け」</strong>
+              を押すだけで、短縮URLも自動展開して ★お気に入り に追加できます。
+            </p>
+            <p className="text-[10px] text-sumi-muted leading-snug">
+              ※AndroidでGoogleマップの共有先に「御朱印めぐり」が出てこない場合は、Chromeから一度ホーム画面に追加し直すと登録されます（コピー貼り付けはそのまま使えます）。
             </p>
             <a
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(

@@ -252,19 +252,45 @@ function AppContent({ activeTab, setActiveTab }) {
     }
 
     // Android等の「Googleマップ → 共有 → 御朱印めぐり（Web Share Target）」から起動された場合の自動取り込み
+    // index.html 事前スクリプトが sessionStorage に退避した値も参照し、SW更新リロード後も絶対に消えないようにする
     try {
       const params = new URLSearchParams(window.location.search);
-      const sharedTitle = (params.get('title') || '').trim();
-      const sharedText = (params.get('text') || '').trim();
-      const sharedUrl = (params.get('url') || '').trim();
+      let sharedTitle = (params.get('title') || '').trim();
+      let sharedText = (params.get('text') || '').trim();
+      let sharedUrl = (params.get('url') || '').trim();
+
+      if (!sharedTitle && !sharedText && !sharedUrl) {
+        const pendingRaw = sessionStorage.getItem('goshuin_pending_share');
+        if (pendingRaw) {
+          const pending = JSON.parse(pendingRaw);
+          if (pending && Date.now() - (pending.ts || 0) < 5 * 60 * 1000) {
+            sharedTitle = (pending.title || '').trim();
+            sharedText = (pending.text || '').trim();
+            sharedUrl = (pending.url || '').trim();
+          } else {
+            sessionStorage.removeItem('goshuin_pending_share');
+          }
+        }
+      }
+
       if (sharedTitle || sharedText || sharedUrl) {
-        window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+        if (window.location.search) {
+          window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+        }
         setGmapImportPayload({
           title: sharedTitle,
           text: sharedText,
           url: sharedUrl
         });
         setIsGmapImportModalOpen(true);
+        // SW controllerchange による再リロードが起きないことを確認してから退避データをクリア
+        setTimeout(() => {
+          try {
+            sessionStorage.removeItem('goshuin_pending_share');
+          } catch {
+            // ignore
+          }
+        }, 2500);
       }
     } catch {
       // ignore

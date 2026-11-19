@@ -139,9 +139,13 @@ export function parseGoogleMapsShareInput({ title = '', text = '', url = '', raw
     .replace(/\r/g, '\n');
 
   const rawSegments = textWithoutUrls
-    .split(/\n+|\s+·\s+|\s+-\s+Google\s*マップ/i)
+    .split(/\n+|\s+[·・]\s+|\s+-\s+Google\s*マップ/i)
     .map((s) => s.replace(/^📍\s*/, '').trim())
-    .filter((s) => s && !/^google\s*(maps|マップ)$/i.test(s));
+    .filter(
+      (s) =>
+        s &&
+        !/^(?:google\s*(?:maps|マップ)|神社|寺院|お寺|日本の場所|観光名所)$/i.test(s)
+    );
 
   let extractedName = urlParsed.name || '';
   let addressHint = urlParsed.addressHint || '';
@@ -199,8 +203,9 @@ export function parseGoogleMapsShareInput({ title = '', text = '', url = '', raw
     }
   }
 
+  const hasGoogleUrl = Boolean(googleUrl && isGoogleMapsInput(googleUrl));
   const isShortUrlOnly =
-    urlParsed.isShortUrl &&
+    (urlParsed.isShortUrl || hasGoogleUrl) &&
     !extractedName &&
     (urlParsed.lat == null || Number.isNaN(urlParsed.lat));
 
@@ -211,7 +216,7 @@ export function parseGoogleMapsShareInput({ title = '', text = '', url = '', raw
     lat: urlParsed.lat,
     lng: urlParsed.lng,
     googleUrl,
-    hasGoogleUrl: Boolean(googleUrl && isGoogleMapsInput(googleUrl)),
+    hasGoogleUrl,
     isShortUrlOnly
   };
 }
@@ -250,21 +255,87 @@ async function reverseGeocodeJapaneseSpot(lat, lng) {
 }
 
 /**
- * Gemini url_context ＋ google_search ツールを使い、短縮URL (maps.app.goo.gl 等) の飛び先情報をサーバー側で展開・取得
+ * Microlink API（CORS対応・無料・認証不要）を使い、maps.app.goo.gl 等の短縮URLをサーバー側リダイレクト展開して
+ * 展開後のURL・ページタイトル・OGP静的地図の緯度経度を抽出する
+ */
+async function expandShortGoogleUrlViaMicrolink(googleUrl) {
+  if (!googleUrl) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    const res = await fetch(
+      `https://api.microlink.io/?url=${encodeURIComponent(googleUrl)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    const data = json?.data;
+    if (!data) return null;
+
+    const redirectUrls = Array.isArray(json.redirects)
+      ? json.redirects.map((r) => (typeof r === 'string' ? r : r?.url || '')).filter(Boolean)
+      : [];
+    const allUrls = [data.url, ...redirectUrls.slice().reverse()].filter(Boolean);
+    const expandedUrl =
+      allUrls.find((u) => /google\.[^/]+\/maps/i.test(u) || /maps\.google\./i.test(u)) ||
+      data.url ||
+      '';
+
+    const rawTitle = (data.title || '').trim();
+    const usefulTitle =
+      rawTitle && !/^(?:google\s*(?:maps|マップ)|maps\.app\.goo\.gl)$/i.test(rawTitle)
+        ? rawTitle
+        : '';
+
+    let lat = null;
+    let lng = null;
+    const imgUrl = data.image?.url || '';
+    const centerMatch = imgUrl.match(/[?&]center=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/i);
+    if (centerMatch) {
+      const cLat = parseFloat(centerMatch[1]);
+      const cLng = parseFloat(centerMatch[2]);
+      if (Math.abs(cLat) > 0.1 && Math.abs(cLng) > 0.1) {
+        lat = cLat;
+        lng = cLng;
+      }
+    }
+
+    const fromExpandedUrl = expandedUrl ? parseSingleGoogleMapsUrl(expandedUrl) : {};
+    const fromTitle = usefulTitle ? parseGoogleMapsShareInput({ rawText: usefulTitle }) : {};
+
+    const name = (fromExpandedUrl.name || fromTitle.name || '').trim();
+    const addressHint = (fromExpandedUrl.addressHint || fromTitle.addressHint || '').trim();
+    const finalLat = typeof fromExpandedUrl.lat === 'number' ? fromExpandedUrl.lat : lat;
+    const finalLng = typeof fromExpandedUrl.lng === 'number' ? fromExpandedUrl.lng : lng;
+
+    if (!name && finalLat == null) return null;
+    return {
+      name,
+      address: addressHint,
+      prefecture: fromTitle.areaHint || '',
+      lat: finalLat,
+      lng: finalLng,
+      expandedUrl
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gemini url_context ＋ google_search ツールを使い、短縮URL (maps.app.goo.gl 等) の飛び先情報を補完
  */
 async function resolveShortGoogleMapsUrlWithGemini(googleUrl) {
   const apiKey = getGeminiApiKey();
   if (!apiKey || !googleUrl) return null;
 
-  const modelCandidates = [
-    'gemini-2.5-flash',
-    getGeminiModel(),
-    'gemini-4-hydrogen',
-    'gemini-3.8-flash'
-  ].filter((m, idx, arr) => Boolean(m) && arr.indexOf(m) === idx);
+  const modelCandidates = ['gemini-2.5-flash', getGeminiModel()]
+    .filter((m, idx, arr) => Boolean(m) && arr.indexOf(m) === idx);
 
   const prompt = `
-次のGoogleマップ短縮リンクが指している日本の場所（神社・お寺・スポット等）を開いて確認し、正式な名称・住所・都道府県・緯度経度をJSONだけで返してください。
+次のGoogleマップ短縮リンクが指している日本の場所（神社・お寺・スポット等）の正式な名称・住所・都道府県・緯度経度をJSONだけで返してください。
 URL: ${googleUrl}
 
 {
@@ -284,7 +355,7 @@ URL: ${googleUrl}
       )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      const timer = setTimeout(() => controller.abort(), 5000);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -349,9 +420,12 @@ export async function resolveGoogleMapsShareToCandidates(
   let parsed = parseGoogleMapsShareInput(sharePayload);
   let queryName = (manualNameOverride || parsed.name || '').trim();
 
-  // 短縮URL単体（名前も座標もない）場合は、まず Gemini url_context で自動展開を試みる
+  // 短縮URL単体（名前も座標もない）場合は、1) Microlinkリダイレクト展開 → 2) Geminiフォールバック の順で自動解決
   if (parsed.isShortUrlOnly && !queryName && parsed.googleUrl) {
-    const expanded = await resolveShortGoogleMapsUrlWithGemini(parsed.googleUrl);
+    let expanded = await expandShortGoogleUrlViaMicrolink(parsed.googleUrl);
+    if (!expanded) {
+      expanded = await resolveShortGoogleMapsUrlWithGemini(parsed.googleUrl);
+    }
     if (expanded) {
       const fromExpandedUrl = expanded.expandedUrl
         ? parseSingleGoogleMapsUrl(expanded.expandedUrl)
