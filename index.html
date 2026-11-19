@@ -15,22 +15,6 @@
     <meta name="apple-mobile-web-app-title" content="御朱印めぐり" />
     <title>御朱印めぐり｜神社仏閣マップ＆御朱印帳</title>
     <script>
-      // Android Web Share Target (共有メニュー起動時) のパラメータをキャッシュ更新リロード前に必ず退避する
-      (function () {
-        try {
-          var params = new URLSearchParams(window.location.search || '');
-          var st = (params.get('title') || '').trim();
-          var sx = (params.get('text') || '').trim();
-          var su = (params.get('url') || '').trim();
-          if (st || sx || su) {
-            sessionStorage.setItem(
-              'goshuin_pending_share',
-              JSON.stringify({ title: st, text: sx, url: su, ts: Date.now() })
-            );
-          }
-        } catch (e) {}
-      })();
-
       // iPhone(iOS) / Android を初回描画前に判定して専用UI・安全余白を適用 ＋ 自動キャッシュ更新
       (function () {
         try {
@@ -54,7 +38,7 @@
       })();
 
       (function () {
-        var APP_BUILD_VERSION = '2026.11.19.v20';
+        var APP_BUILD_VERSION = '2026.11.19.v21';
         try {
           var prevVer = localStorage.getItem('goshuin_app_build_ver');
           if (prevVer !== APP_BUILD_VERSION) {

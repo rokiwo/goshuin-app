@@ -13,24 +13,18 @@ import {
   Star,
   X,
   Loader2,
-  ExternalLink,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp,
-  Link2
+  ChevronUp
 } from 'lucide-react';
 import {
   searchShrineCandidatesByName,
+  isJapaneseAddressQuery,
   inferSpotTypeFromName,
   buildDefaultSampleGoshuin,
   filterAndGroupCandidatesByPrefecture
 } from '../services/shrineSearchService.js';
 import { lookupShrinesAtTapCoordinate } from '../services/mapTapLookupService.js';
-import {
-  isGoogleMapsInput,
-  parseGoogleMapsShareInput,
-  resolveGoogleMapsShareToCandidates
-} from '../services/googleMapsShareService.js';
 import {
   toggleFavoriteSpot,
   saveFavoriteSpot,
@@ -243,8 +237,7 @@ export default function MapView({
   flyTarget,
   onRecenterUser,
   searchRadiusKm = 10,
-  onChangeRadius,
-  onOpenGmapImport
+  onChangeRadius
 }) {
   // デフォルトで「Googleマップ（日本語標準）」を表示
   const [tileStyleKey, setTileStyleKey] = useState('google_road');
@@ -259,17 +252,13 @@ export default function MapView({
   const [manualFavFitCount, setManualFavFitCount] = useState(0);
   const lastFavFitSigRef = useRef('');
 
-  // ★Googleマップ上の全国神社・お寺キーワード検索＆お気に入り登録ステート
+  // ★全国神社・お寺＆住所コピペ検索ステート
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchingName, setIsSearchingName] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchShareMeta, setSearchShareMeta] = useState(null);
   const [searchPrefFilter, setSearchPrefFilter] = useState('');
   const [pinnedSearchSpots, setPinnedSearchSpots] = useState([]);
-
-  // ★本家Googleマップ埋め込みモード（Googleマップに表示される全神社・寺院・口コミ・写真をそのままアプリ内で閲覧可能）
-  const [isGoogleEmbedMode, setIsGoogleEmbedMode] = useState(false);
 
   // ★マップを広く見せるための上部フィルタパネル＆下部カードリストの開閉ステート（デフォルトはスッキリ格納して地図を広く表示）
   const [isToolsExpanded, setIsToolsExpanded] = useState(false);
@@ -296,11 +285,10 @@ export default function MapView({
     else setTileStyleKey('google_road');
   };
 
-  // キーワード入力時のリアルタイム全国社寺検索（ローカル即時＋国土地理院＋Wikipedia＋OSM逐次反映）
+  // キーワード＆住所コピペ時のリアルタイム全国社寺検索（ローカル即時＋無料公開API逐次反映）
   useEffect(() => {
     const q = searchQuery.trim();
     setSearchPrefFilter('');
-    setSearchShareMeta(null);
     if (q.length < 2) {
       setSearchResults([]);
       setIsSearchingName(false);
@@ -309,45 +297,29 @@ export default function MapView({
 
     let cancelled = false;
     const controller = new AbortController();
-    const isUrlQuery = isGoogleMapsInput(q);
+    const isAddrQuery = isJapaneseAddressQuery(q);
     setIsSearchingName(true);
     setIsSearchOpen(true);
 
     const timer = setTimeout(
       async () => {
         try {
-          if (isUrlQuery) {
-            const resolved = await resolveGoogleMapsShareToCandidates(
-              { rawText: q },
-              spots,
-              mapCenter || searchCenter || userLocation
-            );
-            if (!cancelled) {
-              setSearchResults(resolved.candidates || []);
-              setSearchShareMeta({
-                isShortUrlNameOnlyFallback: Boolean(resolved.isShortUrlNameOnlyFallback),
-                shortUrlResolvedName: resolved.shortUrlResolvedName || '',
-                isExactPinMatch: Boolean(resolved.isExactPinMatch)
-              });
-            }
-          } else {
-            const list = await searchShrineCandidatesByName(
-              q,
-              '',
-              spots,
-              mapCenter || searchCenter || userLocation,
-              {
-                signal: controller.signal,
-                onPartialResults: (partial) => {
-                  if (!cancelled && Array.isArray(partial) && partial.length > 0) {
-                    setSearchResults(partial);
-                  }
+          const list = await searchShrineCandidatesByName(
+            q,
+            '',
+            spots,
+            mapCenter || searchCenter || userLocation,
+            {
+              signal: controller.signal,
+              onPartialResults: (partial) => {
+                if (!cancelled && Array.isArray(partial) && partial.length > 0) {
+                  setSearchResults(partial);
                 }
               }
-            );
-            if (!cancelled) {
-              setSearchResults(list);
             }
+          );
+          if (!cancelled) {
+            setSearchResults(list);
           }
         } catch {
           if (!cancelled) {
@@ -359,7 +331,7 @@ export default function MapView({
           }
         }
       },
-      isUrlQuery ? 80 : 160
+      isAddrQuery ? 120 : 160
     );
 
     return () => {
@@ -419,8 +391,8 @@ export default function MapView({
     });
     await toggleFavoriteSpot(spotObj);
 
-    // URL貼り付け経由で新たにお気に入り登録した場合は、そのままマップ上へジャンプして反映を見やすくする
-    if (!wasFav && isGoogleMapsInput(searchQuery)) {
+    // 住所ピンポイント検索結果から新たにお気に入り登録した場合は、そのままマップ上へジャンプして反映を見やすくする
+    if (!wasFav && searchResults.length === 1 && cand.isAddressExactMatch) {
       handlePickSearchResult(spotObj);
     }
   };
@@ -443,7 +415,6 @@ export default function MapView({
 
     const autoThreshold = Math.max(0.035, (searchRadiusKm / 111) * 0.65);
     if (
-      !isGoogleEmbedMode &&
       filterType !== 'favorite' &&
       !isLoading &&
       onSearchMapCenter &&
@@ -681,36 +652,11 @@ export default function MapView({
 
   const activeCircleCenter = searchCenter || userLocation;
 
-  // 本家Googleマップ埋め込み・外部検索リンク用のクエリ（生URLをそのまま渡さない）
-  const googleEmbedQuery = (() => {
-    const q = searchQuery.trim();
-    if (q) {
-      if (isGoogleMapsInput(q)) {
-        if (searchResults.length > 0) {
-          return `${searchResults[0].name} ${searchResults[0].address || ''}`.trim();
-        }
-        const parsed = parseGoogleMapsShareInput({ rawText: q });
-        if (parsed.name) return `${parsed.name} ${parsed.areaHint || ''}`.trim();
-        if (typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
-          return `${parsed.lat},${parsed.lng}`;
-        }
-      } else {
-        return q;
-      }
-    }
-    if (filterType === 'favorite' && activeFavPref && activeFavPref !== 'ALL') {
-      return `${activeFavPref} 神社 寺院`;
-    }
-    return `${(mapCenter || searchCenter || userLocation).lat},${
-      (mapCenter || searchCenter || userLocation).lng
-    } 神社 寺院`;
-  })();
-
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
-      {/* 上部フローティング：普段は「検索バー1本＋右側ミニボタン」だけでマップを最大限広く見せる */}
+      {/* 上部フローティング：普段は「検索バー1本＋絞込ボタン」だけでマップを最大限広く見せる */}
       <div className="absolute top-2 left-2.5 right-2.5 z-30 flex flex-col gap-1.5 pointer-events-none">
-        {/* ★1行目：全国神社・お寺検索ボックス ＋ 絞り込み開閉ボタン ＋ 本家Gマップ切替ボタン */}
+        {/* ★1行目：全国神社・お寺＆住所コピペ検索ボックス ＋ 絞り込み開閉ボタン */}
         <div className="relative pointer-events-auto">
           <div className="flex items-center gap-1.5">
             <div className="flex-1 min-w-0 flex items-center gap-1.5 bg-washi/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border-2 border-kin shadow-lg">
@@ -722,20 +668,9 @@ export default function MapView({
                   setIsSearchOpen(true);
                 }}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="神社・お寺名やGマップURLで検索"
+                placeholder="神社・お寺名や住所（コピペ可）で検索"
                 className="flex-1 bg-transparent text-xs font-serif font-bold text-sumi placeholder:text-sumi-muted/75 focus:outline-none min-w-0"
               />
-              {!searchQuery && onOpenGmapImport && (
-                <button
-                  type="button"
-                  onClick={() => onOpenGmapImport('')}
-                  className="px-2 py-0.5 rounded-lg bg-amber-400 text-sumi border border-amber-600 text-[10px] font-serif font-bold flex items-center gap-0.5 shrink-0 active:scale-95 transition whitespace-nowrap"
-                  title="Googleマップの共有URLを貼り付けてお気に入り登録"
-                >
-                  <Link2 className="w-3 h-3 shrink-0" />
-                  <span>URL</span>
-                </button>
-              )}
               {isSearchingName && (
                 <Loader2 className="w-3.5 h-3.5 text-shuiro animate-spin shrink-0" />
               )}
@@ -755,21 +690,6 @@ export default function MapView({
               )}
             </div>
 
-            {/* 本家Googleマップ ⇔ ピン地図 ワンタップ切替ボタン */}
-            <button
-              type="button"
-              onClick={() => setIsGoogleEmbedMode((prev) => !prev)}
-              className={`px-2.5 py-2 rounded-2xl border-2 text-[11px] font-serif font-bold shadow-lg flex items-center gap-1 shrink-0 active:scale-95 transition whitespace-nowrap ${
-                isGoogleEmbedMode
-                  ? 'bg-shuiro text-washi border-kin'
-                  : 'bg-sumi text-kin border-kin/70'
-              }`}
-              title="本家Googleマップ検索画面と切り替え"
-            >
-              <MapPin className="w-3.5 h-3.5 text-kin shrink-0" />
-              <span>{isGoogleEmbedMode ? 'ピン地図' : 'Gマップ'}</span>
-            </button>
-
             {/* 絞り込み・検索範囲の開閉ボタン */}
             <button
               type="button"
@@ -786,80 +706,7 @@ export default function MapView({
             </button>
           </div>
 
-          {/* ★本家Googleマップモード時で検索ワードがあるとき、または検索候補の上に「クイック★お気に入り追加バー」を表示 */}
-          {isGoogleEmbedMode && searchQuery.trim().length >= 2 && searchResults.length > 0 && !isSearchOpen && (
-            <div className="mt-1.5 p-2 rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-xl flex items-center justify-between gap-2 animate-slide-up">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1">
-                  <span className="px-1.5 py-0.2 rounded bg-kin/30 text-sumi font-serif font-bold text-[10px] shrink-0">
-                    {searchResults[0].prefecture || extractPrefectureFromSpot(searchResults[0])}
-                  </span>
-                  <span className="font-serif font-bold text-xs text-sumi truncate">
-                    {searchResults[0].name}
-                  </span>
-                </div>
-                <p className="text-[10px] text-sumi-muted truncate">
-                  {searchResults[0].address}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={(e) => handleToggleFav(e, searchResults[0])}
-                  className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition ${
-                    favoriteMap[searchResults[0].id]
-                      ? 'bg-amber-400 text-sumi border-amber-600'
-                      : 'bg-sumi text-kin border-kin'
-                  }`}
-                >
-                  <Star
-                    className={`w-3 h-3 ${
-                      favoriteMap[searchResults[0].id] ? 'fill-sumi text-sumi' : 'text-amber-400'
-                    }`}
-                  />
-                  <span>
-                    {favoriteMap[searchResults[0].id] ? 'お気に入り済' : '★お気に入り追加'}
-                  </span>
-                </button>
-                {searchResults.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setIsSearchOpen(true)}
-                    className="px-2 py-1.5 rounded-xl bg-washi-dark border border-kin/40 text-[10px] font-serif font-bold text-sumi"
-                  >
-                    他{searchResults.length - 1}件
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 空検索フォーカス時のワンタップ「Googleマップ共有URL貼付」クイックバー */}
-          {isSearchOpen && searchQuery.trim().length < 2 && onOpenGmapImport && (
-            <div className="mt-1.5 p-2 rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-xl flex items-center justify-between gap-2 animate-slide-up">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSearchOpen(false);
-                  onOpenGmapImport('');
-                }}
-                className="flex-1 py-1.5 px-3 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-[11px] font-serif font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition"
-              >
-                <Link2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Googleマップの共有リンクを貼って★登録する</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsSearchOpen(false)}
-                className="p-1.5 rounded-xl bg-sumi/10 text-sumi"
-                title="閉じる"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* 検索候補ドロップダウン（都道府県ワンタップ絞込＆★お気に入りボタン＆本家Gマップ確認ボタン付き） */}
+          {/* 検索候補ドロップダウン（都道府県ワンタップ絞込＆★お気に入りボタン付き） */}
           {isSearchOpen && searchQuery.trim().length >= 2 && (() => {
             const { prefOptions, hasMultiPrefs, visibleResults } =
               filterAndGroupCandidatesByPrefecture(searchResults, searchPrefFilter);
@@ -871,11 +718,13 @@ export default function MapView({
                     <Sparkles className="w-3 h-3 text-kin shrink-0" />
                     <span className="truncate">
                       {isSearchingName && searchResults.length === 0
-                        ? isGoogleMapsInput(searchQuery)
-                          ? 'GoogleマップURLの地点を高速特定中...'
+                        ? isJapaneseAddressQuery(searchQuery)
+                          ? '住所から神社・お寺を特定中...'
                           : `「${searchQuery.trim()}」を検索中...`
-                        : isGoogleMapsInput(searchQuery) && searchResults.length === 1
-                        ? 'GoogleマップURLの場所を1件特定しました（★で登録・タップで移動）'
+                        : !isSearchingName &&
+                          searchResults.length === 1 &&
+                          searchResults[0]?.isAddressExactMatch
+                        ? '住所から場所を1件特定しました（タップで地図移動・★で登録）'
                         : isSearchingName
                         ? `候補 ${searchResults.length}件（追加取得中...）`
                         : `候補 ${visibleResults.length}件（タップで地図移動・★でお気に入り追加）`}
@@ -889,18 +738,6 @@ export default function MapView({
                     閉じる
                   </button>
                 </div>
-
-                {/* 短縮URLでGoogle側が座標/県を返さない場合の正直な案内＋県名追加入力ヒント */}
-                {!isSearchingName && searchShareMeta?.isShortUrlNameOnlyFallback && (
-                  <div className="px-3 py-2 bg-amber-50 text-[10px] text-sumi leading-relaxed">
-                    <span className="font-bold text-amber-800">
-                      ℹ 短縮URL（maps.app.goo.gl）はGoogle側の仕様で座標・県名が省略される場合があります。
-                    </span>
-                    <span className="text-sumi-muted">
-                      「{searchShareMeta.shortUrlResolvedName}」の全国候補から下の県タブで即絞り込みできます（地図の神社を直接タップでも登録可）。
-                    </span>
-                  </div>
-                )}
 
                 {/* 複数都道府県に同名候補がある場合の1タップ絞り込みチップ */}
                 {hasMultiPrefs && (
@@ -936,36 +773,10 @@ export default function MapView({
                 )}
 
                 {!isSearchingName && visibleResults.length === 0 ? (
-                  <div className="p-3 text-center space-y-2">
-                    <p className="text-xs text-sumi-muted">
-                      {isGoogleMapsInput(searchQuery)
-                        ? '短縮URLだけでは地点を特定できませんでした。神社名（例: 香川 白鳥神社）でもすぐ検索できます。'
-                        : '候補が見つかりませんでした。'}
+                  <div className="p-3 text-center">
+                    <p className="text-xs text-sumi-muted leading-relaxed">
+                      候補が見つかりませんでした。社寺名やGoogleマップの住所（例: 香川県東かがわ市松原69）をお試しください。
                     </p>
-                    {isGoogleMapsInput(searchQuery) && onOpenGmapImport ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsSearchOpen(false);
-                          onOpenGmapImport(searchQuery.trim());
-                        }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-xs font-serif font-bold shadow"
-                      >
-                        <Link2 className="w-3.5 h-3.5" />
-                        <span>URLと名前から★お気に入り追加を開く</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsGoogleEmbedMode(true);
-                          setIsSearchOpen(false);
-                        }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-shuiro text-washi text-xs font-serif font-bold shadow"
-                      >
-                        <span>本家Googleマップ画面で「{searchQuery.trim()}」を表示</span>
-                      </button>
-                    )}
                   </div>
                 ) : (
                   visibleResults.map((cand) => {
@@ -1191,22 +1002,20 @@ export default function MapView({
                 ))}
               </div>
 
-              {!isGoogleEmbedMode && (
-                <button
-                  type="button"
-                  onClick={cycleTileStyle}
-                  className="px-2.5 py-1 rounded-full bg-washi text-sumi border border-kin text-[10px] font-bold flex items-center gap-1 shrink-0"
-                >
-                  <Layers className="w-3 h-3 text-shuiro" />
-                  <span>{currentTile.label}</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={cycleTileStyle}
+                className="px-2.5 py-1 rounded-full bg-washi text-sumi border border-kin text-[10px] font-bold flex items-center gap-1 shrink-0"
+              >
+                <Layers className="w-3 h-3 text-shuiro" />
+                <span>{currentTile.label}</span>
+              </button>
             </div>
           </div>
         )}
 
         {/* 地図をスクロールした際に表示される「このエリアで寺社を検索」ボタン */}
-        {showSearchHereBtn && !isLoading && !isGoogleEmbedMode && filterType !== 'favorite' && (
+        {showSearchHereBtn && !isLoading && filterType !== 'favorite' && (
           <button
             type="button"
             onClick={handleSearchThisArea}
@@ -1226,8 +1035,8 @@ export default function MapView({
         )}
       </div>
 
-      {/* 右端フローティングのミニ操作ボタン（ピン地図時のみ表示。検索ドロップダウンや絞込展開時は隠して重なりを防止） */}
-      {!isGoogleEmbedMode && !isSearchOpen && !isToolsExpanded && (
+      {/* 右端フローティングのミニ操作ボタン（検索ドロップダウンや絞込展開時は隠して重なりを防止） */}
+      {!isSearchOpen && !isToolsExpanded && (
         <div
           className={`absolute right-2.5 z-20 flex flex-col gap-1.5 pointer-events-auto transition-all ${
             filterType === 'favorite' ? 'top-24' : 'top-16'
@@ -1253,58 +1062,14 @@ export default function MapView({
         </div>
       )}
 
-      {/* Google マップ タイル統合マップ本体 または 本家Googleマップ埋め込み画面 */}
+      {/* Google マップ タイル統合マップ本体 */}
       <div className="flex-1 w-full h-full">
-        {isGoogleEmbedMode ? (
-          <div
-            className={`w-full h-full pb-2 px-1.5 bg-sumi/95 flex flex-col gap-1.5 ${
-              filterType === 'favorite' ? 'pt-24' : 'pt-14'
-            }`}
-          >
-            <div className="flex-1 w-full rounded-2xl overflow-hidden border-2 border-kin shadow-2xl bg-washi relative">
-              <iframe
-                title="本家Googleマップ検索"
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(
-                  googleEmbedQuery
-                )}&z=14&hl=ja&output=embed`}
-                className="w-full h-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </div>
-
-            {/* 本家Googleマップアプリ連携バー（「本家アプリで探す」＆「共有リンクを貼って★追加」） */}
-            <div className="shrink-0 flex items-center gap-1.5">
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  googleEmbedQuery
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 py-2 px-2.5 rounded-xl bg-washi text-sumi border border-kin font-serif font-bold text-[11px] flex items-center justify-center gap-1 shadow active:scale-95 transition whitespace-nowrap"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-shuiro shrink-0" />
-                <span>本家Gマップで探す</span>
-              </a>
-              {onOpenGmapImport && (
-                <button
-                  type="button"
-                  onClick={() => onOpenGmapImport(isGoogleMapsInput(searchQuery) ? searchQuery : '')}
-                  className="flex-1 py-2 px-2.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 font-serif font-bold text-[11px] flex items-center justify-center gap-1 shadow active:scale-95 transition whitespace-nowrap"
-                >
-                  <Star className="w-3.5 h-3.5 fill-sumi text-sumi shrink-0" />
-                  <span>共有リンクで★追加</span>
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <MapContainer
-            center={[userLocation.lat, userLocation.lng]}
-            zoom={12}
-            zoomControl={false}
-            className="w-full h-full"
-          >
+        <MapContainer
+          center={[userLocation.lat, userLocation.lng]}
+          zoom={12}
+          zoomControl={false}
+          className="w-full h-full"
+        >
             <TileLayer
               key={currentTile.id}
               attribution={currentTile.attribution}
@@ -1367,11 +1132,10 @@ export default function MapView({
               );
             })}
           </MapContainer>
-        )}
       </div>
 
       {/* ★Googleマップ直接タップ時の「この地点の神社・お寺をワンタップ★お気に入り」パネル */}
-      {!isGoogleEmbedMode && tapLookupState && (
+      {tapLookupState && (
         <div className="absolute bottom-2.5 left-2.5 right-2.5 z-30 pointer-events-auto rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-amber-500 shadow-2xl overflow-hidden animate-slide-up">
           <div className="bg-sumi text-washi px-3 py-2 flex items-center justify-between gap-2">
             <span className="text-[11px] font-serif font-bold flex items-center gap-1.5 text-amber-300">
@@ -1541,8 +1305,8 @@ export default function MapView({
         </div>
       )}
 
-      {/* 下部横スクロール：周辺寺社クイックカードリスト（折りたたみ可能・本家Gマップやタップ選択時は格納） */}
-      {!isGoogleEmbedMode && !tapLookupState && (
+      {/* 下部横スクロール：周辺寺社クイックカードリスト（折りたたみ可能・タップ選択時は格納） */}
+      {!tapLookupState && (
         <div className="absolute bottom-2.5 left-0 right-0 z-20 pointer-events-none flex flex-col items-center">
           {/* カードリストをたたむ / 広げるミニつまみ */}
           <button
