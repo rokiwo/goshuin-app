@@ -1,4 +1,9 @@
 import { SEED_SPOTS } from '../data/seedSpots.js';
+import { extractPrefectureFromSpot } from '../db/database.js';
+import {
+  reverseGeocodeJapaneseAddressFast,
+  isProperJapaneseAddress
+} from './shrineSearchService.js';
 
 // Overpass APIのミラーエンドポイント一覧（通信失敗時の自動フォールバック用）
 const OVERPASS_ENDPOINTS = [
@@ -126,7 +131,7 @@ async function fetchWikipediaFamousTemplesAndShrines(centerLat, centerLng, radiu
         reading: '',
         type,
         denomination,
-        address: '周辺有名社寺（詳細はGoogleマップボタンで確認）',
+        address: '',
         lat: item.lat,
         lng: item.lon,
         distanceKm: calculateDistanceKm(centerLat, centerLng, item.lat, item.lon),
@@ -273,7 +278,7 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
       reading: tags['name:ja-Hira'] || tags['name:reading'] || '',
       type,
       denomination,
-      address: fullAddr || '所在地は地図ピンまたはGoogleマップボタンでご確認ください',
+      address: fullAddr || '',
       lat,
       lng,
       distanceKm: calculateDistanceKm(centerLat, centerLng, lat, lng),
@@ -296,6 +301,26 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
   const combined = [...enrichedSeeds, ...dynamicSpots]
     .filter((s) => s.distanceKm <= radiusKm)
     .sort((a, b) => a.distanceKm - b.distanceKm);
+
+  // 近い上位10件のうち住所が未取得のものを無料逆ジオコーディングで「都道府県＋市区町村＋町名」へ補完
+  const needsAddr = combined
+    .filter((s) => !isProperJapaneseAddress(s.address))
+    .slice(0, 10);
+  if (needsAddr.length > 0) {
+    await Promise.allSettled(
+      needsAddr.map(async (spot) => {
+        const rev = await reverseGeocodeJapaneseAddressFast(spot.lat, spot.lng);
+        if (rev?.address) {
+          spot.address = rev.address;
+        }
+      })
+    );
+  }
+  for (const spot of combined) {
+    if (!spot.address) {
+      spot.address = extractPrefectureFromSpot(spot) || '';
+    }
+  }
 
   return {
     spots: combined,

@@ -269,6 +269,69 @@ export function buildDefaultSampleGoshuin(name, type = 'shrine') {
 
 const SEARCH_RESULT_CACHE = new Map();
 const SEARCH_CACHE_TTL_MS = 180000;
+const REV_GEO_CACHE = new Map();
+
+const BAD_ADDRESS_RE =
+  /(?:Wikipedia|掲載社寺|周辺有名社寺|所在地は地図ピン|住所情報あり|にある|に位置する|に鎮座する|に所在する|の東隣|の西側|の中濃地域|南部|北部|東部|西部|（[^）]*(?:神社|神宮|大社|寺|院|宮)）)/;
+
+const NON_WORSHIP_SUFFIX_RE =
+  /(?:都|道|府|県|市|区|町|村|郡|駅|停留所|バス停|病院|クリニック|公会堂|会館|美術館|博物館|公園|緑地|花やしき|遊園地|小学校|中学校|高校|高等学校|大学|郵便局|市役所|区役所|町役場|交差点|インターチェンジ|駐車場|ホテル|旅館|商店街|通り|墓地|霊園|納骨堂|集会所|自治会館|公民館|教会|モスク)$/;
+
+const RELIGIOUS_TAIL_RE =
+  /(?:神社|神宮|大社|天満宮|八幡宮?|稲荷|権現|天神|明神|東照宮|護国神社|招魂社|大神宮|大明神|戎|恵比寿|恵美須|住吉|春日|八坂|厳島|素盞嗚|寺院?|院|大師|観音|不動|薬師|地蔵|本山|霊場|精舎|堂|庵|社|(?:の|ノ|之|一|二|若|今|西|新)宮)$/;
+
+const RELIGIOUS_CONTAIN_RE =
+  /(?:神社|神宮|大社|天満宮|八幡|稲荷|権現|明神|大神宮|寺院|観音堂|大師堂|不動尊)/;
+
+/**
+ * 住所文字列の品質スコアを判定（0: 無効・例文・単なる県名 / 1: 不十分 / 2: 県＋市区町村＋町名 / 3: 番地・丁目付き詳細住所）
+ */
+function scoreAddressQuality(addr = '') {
+  const trimmed = String(addr || '').trim();
+  if (!trimmed || ALL_PREFECTURES.includes(trimmed) || BAD_ADDRESS_RE.test(trimmed)) {
+    return 0;
+  }
+  const hasPref = /(?:北海道|東京都|(?:京都|大阪)府|.{2,3}県)/.test(trimmed);
+  const hasMuni = /[市区町村郡]/.test(trimmed);
+  if (hasPref && hasMuni) {
+    const hasStreetOrNum = /[0-9０-９一二三四五六七八九十]+(?:丁目|番|号|-|ー)?/.test(trimmed);
+    return hasStreetOrNum ? 3 : 2;
+  }
+  return 1;
+}
+
+/**
+ * 日本の正確な住所（都道府県＋市区町村あり・Wikipedia例文等ではない）かどうかを判定
+ */
+export function isProperJapaneseAddress(addr = '') {
+  return scoreAddressQuality(addr) >= 2;
+}
+
+/**
+ * スポット名称として妥当か（県名・市名・駅・病院・施設・地区名単体などを除外）
+ */
+function isValidWorshipSpotName(name = '') {
+  const n = String(name || '').trim();
+  if (n.length < 2 || ALL_PREFECTURES.includes(n)) return false;
+  if (NON_WORSHIP_SUFFIX_RE.test(n)) return false;
+  if (/^(?:三宮|梅田|難波|新宿|渋谷|池袋|銀座|浅草|京都|神戸|大阪|東京)$/.test(n)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 神社・寺院を表す名称か判定（「宮城県」「宮崎県」等で誤マッチしないよう県・市区町村プレフィックスを除外して評価）
+ */
+function isReligiousPlaceName(name = '') {
+  const n = String(name || '').trim();
+  if (!isValidWorshipSpotName(n)) return false;
+  const stripped = n
+    .replace(/^(?:北海道|東京都|(?:京都|大阪)府|.{2,3}県)(?:.{1,8}[市区町村郡])?/, '')
+    .trim();
+  const target = stripped || n;
+  return RELIGIOUS_TAIL_RE.test(target) || RELIGIOUS_CONTAIN_RE.test(target);
+}
 
 /**
  * タイムアウト・外部AbortSignal両対応の高速fetchヘルパー
@@ -294,8 +357,93 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 2200, outerSignal
 }
 
 /**
- * 国土地理院（GSI）AddressSearch API で日本全国の神社・寺院を検索（2秒タイムアウト＋高速逆ジオ補完）
- * ★OpenStreetMapに登録されていない地域の神社や同名神社も、国土地理院の地図データから超高確率でヒットします
+ * 座標から「都道府県＋市区町村＋町名」を高速・無料で取得（GSI＋HeartRails並列・200件キャッシュ付き）
+ */
+export async function reverseGeocodeJapaneseAddressFast(lat, lng, signal = null) {
+  if (typeof lat !== 'number' || typeof lng !== 'number' || Number.isNaN(lat) || Number.isNaN(lng)) {
+    return null;
+  }
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = REV_GEO_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const [gsiSettled, hrSettled] = await Promise.allSettled([
+      fetchWithTimeout(
+        `https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=${lat}&lon=${lng}`,
+        {},
+        1100,
+        signal
+      ).then((r) => (r.ok ? r.json() : null)),
+      fetchWithTimeout(
+        `https://geoapi.heartrails.com/api/json?method=searchByGeoLocation&x=${lng}&y=${lat}`,
+        {},
+        1100,
+        signal
+      ).then((r) => (r.ok ? r.json() : null))
+    ]);
+
+    const gsiRes = gsiSettled.status === 'fulfilled' ? gsiSettled.value?.results : null;
+    const hrLoc = hrSettled.status === 'fulfilled' ? hrSettled.value?.response?.location?.[0] : null;
+
+    const muniCd = gsiRes?.muniCd || '';
+    const rawLv01 = (gsiRes?.lv01Nm || '').trim();
+    const lv01Nm = /^[−\-ー—]+$/.test(rawLv01) ? '' : rawLv01;
+    const gsiPref = getPrefectureFromAddressCode(muniCd) || '';
+    const hrPref = (hrLoc?.prefecture || '').trim();
+    const hrCity = (hrLoc?.city || '').trim();
+    const hrTown = (hrLoc?.town || '').trim();
+
+    const pref = gsiPref || hrPref;
+    const samePref = !gsiPref || !hrPref || gsiPref === hrPref;
+    const city = samePref ? hrCity : '';
+    const rawTown = lv01Nm || (samePref ? hrTown : '');
+    const town = city && rawTown && city.endsWith(rawTown) ? '' : rawTown;
+
+    const address = `${pref}${city}${town}`.trim();
+    if (!address) return null;
+
+    const result = { prefecture: pref, address };
+    if (REV_GEO_CACHE.size >= 200) {
+      const oldest = REV_GEO_CACHE.keys().next().value;
+      REV_GEO_CACHE.delete(oldest);
+    }
+    REV_GEO_CACHE.set(cacheKey, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 住所が未整備・不十分な候補の上位件数について正確な日本語住所を一括補完
+ */
+async function enrichCandidateAddresses(candidates = [], signal = null, limit = 10) {
+  const targets = candidates
+    .filter((c) => !isProperJapaneseAddress(c.address))
+    .slice(0, limit);
+  if (targets.length === 0 || signal?.aborted) return false;
+
+  let anyUpdated = false;
+  await Promise.allSettled(
+    targets.map(async (cand) => {
+      const rev = await reverseGeocodeJapaneseAddressFast(cand.lat, cand.lng, signal);
+      if (!rev?.address) return;
+      if (scoreAddressQuality(rev.address) > scoreAddressQuality(cand.address)) {
+        cand.address = rev.address;
+        anyUpdated = true;
+      }
+      if (!cand.prefecture && rev.prefecture) {
+        cand.prefecture = rev.prefecture;
+        anyUpdated = true;
+      }
+    })
+  );
+  return anyUpdated;
+}
+
+/**
+ * 国土地理院（GSI）AddressSearch API で日本全国の神社・寺院を検索（2秒タイムアウト・誤マッチ除外）
  */
 async function searchViaGsiApi(cleanName, cleanArea = '', signal = null) {
   try {
@@ -337,13 +485,8 @@ async function searchViaGsiApi(cleanName, cleanArea = '', signal = null) {
       const lat = parseFloat(coords[1]);
       if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
 
-      // 単なる町名・大字（例：「鳥取県倉吉市生田神主田」）と神社・お寺を区別する
-      const isReligiousTitle =
-        dataSource === '1' ||
-        /(?:神社|神宮|大社|天満宮|八幡|稲荷|権現|天神|明神|社|宮|戎|恵比寿|寺|院|堂|庵|大師|観音|不動|薬師|地蔵|本山|霊場)/.test(
-          title
-        );
-      if (!isReligiousTitle && !title.includes(cleanName)) continue;
+      if (!isValidWorshipSpotName(title)) continue;
+      if (dataSource !== '1' && !isReligiousPlaceName(title)) continue;
 
       const prefFromCode = getPrefectureFromAddressCode(addressCode);
       const pref =
@@ -364,7 +507,7 @@ async function searchViaGsiApi(cleanName, cleanArea = '', signal = null) {
         id: `gsi-${lat.toFixed(5)}-${lng.toFixed(5)}`,
         name: title,
         type,
-        address: pref && !title.startsWith(pref) ? `${pref}（${title}）` : title,
+        address: '',
         prefecture: pref,
         lat,
         lng,
@@ -374,35 +517,6 @@ async function searchViaGsiApi(cleanName, cleanArea = '', signal = null) {
       });
     }
 
-    // 上位4件のみ町名補完（最大850msで打ち切り、検索表示を絶対に待たせない）
-    const topToEnrich = results.slice(0, 4);
-    if (topToEnrich.length > 0 && !signal?.aborted) {
-      await Promise.allSettled(
-        topToEnrich.map(async (cand) => {
-          try {
-            const revRes = await fetchWithTimeout(
-              `https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=${cand.lat}&lon=${cand.lng}`,
-              {},
-              850,
-              signal
-            );
-            if (revRes.ok) {
-              const revData = await revRes.json();
-              const lv01 = revData?.results?.lv01Nm || '';
-              const muniCd = revData?.results?.muniCd || '';
-              const pref = getPrefectureFromAddressCode(muniCd) || cand.prefecture;
-              if (pref) cand.prefecture = pref;
-              if (lv01 && !cand.address.includes(lv01)) {
-                cand.address = `${pref ? pref + ' ' : ''}${lv01}（${cand.name}）`;
-              }
-            }
-          } catch {
-            // タイムアウト・失敗時は都道府県付き住所のまま即返す
-          }
-        })
-      );
-    }
-
     return results;
   } catch {
     return [];
@@ -410,8 +524,8 @@ async function searchViaGsiApi(cleanName, cleanArea = '', signal = null) {
 }
 
 /**
- * Wikipedia 日本語版 API で位置情報付きの神社・寺院記事を検索（2.2秒タイムアウト）
- * ★通称・旧称・別名（例：「お菊神社」→「十二所神社 (姫路市)」など）でも本文一致でヒットします
+ * Wikipedia 日本語版 API で位置情報付きの神社・寺院記事を検索（2.2秒タイムアウト・関連記事ノイズ除外）
+ * ★通称・旧称・別名（例：「お菊神社」→「十二所神社」など）は本文明記時のみヒットさせます
  */
 async function searchViaWikipediaApi(cleanName, cleanArea = '', signal = null) {
   try {
@@ -425,6 +539,7 @@ async function searchViaWikipediaApi(cleanName, cleanArea = '', signal = null) {
     const data = await res.json();
     const pages = Object.values(data?.query?.pages || {});
 
+    const normQuery = normalizeShrineText(cleanName);
     const results = [];
     for (const p of pages) {
       const rawTitle = (p.title || '').trim();
@@ -434,32 +549,28 @@ async function searchViaWikipediaApi(cleanName, cleanArea = '', signal = null) {
       }
 
       const extract = (p.extract || '').trim();
-      const combinedText = `${rawTitle} ${extract}`;
+      const cleanSpotName = rawTitle.replace(/\s*[（(].*?[）)]\s*/g, '').trim();
 
-      // 神社・寺院に関する記事かどうかを判定
+      // 県・市・公園・病院・駅などの非社寺記事を厳格除外
+      if (!isReligiousPlaceName(cleanSpotName)) continue;
       if (
-        !/(?:神社|神宮|大社|天満宮|八幡|稲荷|権現|天神|明神|社|宮|戎|寺|院|堂|庵|大師|観音|不動|薬師|地蔵|祭神|本尊|創建|御朱印)/.test(
-          combinedText
+        /(?:日本の県|日本の市|中心業務地区|繁華街|遊園地|都市公園|公立病院|鉄道駅|公会堂)/.test(
+          extract
         )
       ) {
         continue;
       }
 
-      // タイトルの括弧内に自治体名がある場合（例: "氷川神社 (東京都港区赤坂)"）は住所ヒントとして活用
-      const parenMatch = rawTitle.match(/[（(](.+?)[）)]/);
-      const areaInTitle = parenMatch ? parenMatch[1] : '';
-      const cleanSpotName = rawTitle.replace(/\s*[（(].*?[）)]\s*/g, '').trim();
+      // 名称一致、または通称・別称として本文に検索語が明記された場合のみ採用（単なる関連寺社の混入を防止）
+      const tier = getNameMatchTier(cleanSpotName, normQuery);
+      const isAliasMatch = cleanName.length >= 2 && extract.includes(cleanName);
+      if (tier === 0 && !isAliasMatch) {
+        continue;
+      }
 
-      // 本文から所在地（「〇〇県〇〇市…にある神社」など）を抽出
-      const addrInExtract =
-        extract.match(
-          /(?:北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)[^\s。、（）()]{1,25}/
-        )?.[0] || '';
-
-      const address = addrInExtract || areaInTitle || '';
       const prefecture = extractPrefectureFromSpot({
         name: rawTitle,
-        address: `${address} ${extract}`,
+        address: extract,
         lat: coords.lat,
         lng: coords.lon
       });
@@ -467,8 +578,8 @@ async function searchViaWikipediaApi(cleanName, cleanArea = '', signal = null) {
       if (
         cleanArea &&
         !prefecture.includes(cleanArea) &&
-        !address.includes(cleanArea) &&
-        !combinedText.includes(cleanArea)
+        !rawTitle.includes(cleanArea) &&
+        !extract.includes(cleanArea)
       ) {
         continue;
       }
@@ -478,7 +589,7 @@ async function searchViaWikipediaApi(cleanName, cleanArea = '', signal = null) {
         id: `wiki-search-${p.pageid}`,
         name: cleanSpotName,
         type,
-        address: address || `${prefecture}（Wikipedia掲載社寺）`,
+        address: '',
         prefecture,
         lat: coords.lat,
         lng: coords.lon,
@@ -496,7 +607,7 @@ async function searchViaWikipediaApi(cleanName, cleanArea = '', signal = null) {
 }
 
 /**
- * OpenStreetMap Nominatim API による周辺＆全国検索
+ * OpenStreetMap Nominatim API による周辺＆全国検索（看板・案内板・病院等の非社寺を厳格除外）
  * ★レート制限(1req/s)による遅延を防ぐため、viewbox優先付き全国検索の単一リクエスト＋2.4秒タイムアウトに最適化
  */
 async function searchViaNominatimApi(
@@ -528,24 +639,60 @@ async function searchViaNominatimApi(
     const items = await res.json();
     if (!Array.isArray(items)) return [];
 
+    const excludedCategories = new Set([
+      'highway',
+      'railway',
+      'boundary',
+      'place',
+      'shop',
+      'office',
+      'landuse',
+      'natural',
+      'waterway'
+    ]);
+    const excludedTypes = new Set([
+      'board',
+      'information',
+      'guidepost',
+      'memorial',
+      'bench',
+      'station',
+      'bus_stop',
+      'convenience',
+      'hospital',
+      'school',
+      'park',
+      'artwork',
+      'monument'
+    ]);
+
     const results = [];
     for (const item of items) {
       const lat = parseFloat(item.lat);
       const lng = parseFloat(item.lon);
       if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
 
+      const cat = item.category || item.class || '';
       const rawName = (item.name || item.display_name?.split(',')[0] || cleanName).trim();
 
-      // 明らかに駅・バス停・コンビニ・道路などの無関係施設だけを除外し、神社仏閣・史跡・観光地は広く許容
-      const isExcludedFacility =
-        item.class === 'highway' ||
-        item.class === 'railway' ||
-        item.type === 'station' ||
-        item.type === 'bus_stop' ||
-        item.type === 'convenience' ||
-        /(?:駅|停留所|バス停|交差点|インターチェンジ|小学校|中学校|高等学校|病院|郵便局)$/.test(rawName);
+      if (
+        excludedCategories.has(cat) ||
+        excludedTypes.has(item.type) ||
+        (cat === 'tourism' && item.type === 'information')
+      ) {
+        continue;
+      }
 
-      if (isExcludedFacility) continue;
+      if (!isValidWorshipSpotName(rawName)) continue;
+      if (
+        item.type !== 'place_of_worship' &&
+        item.type !== 'wayside_shrine' &&
+        item.type !== 'shrine' &&
+        item.type !== 'temple' &&
+        !isReligiousPlaceName(rawName)
+      ) {
+        continue;
+      }
 
       const formattedAddr = formatJapaneseAddress(item);
       const pref =
@@ -762,10 +909,12 @@ export async function searchShrineCandidatesByName(
 
   const rawCandidates = [];
 
-  // 重複排除付きで候補リストに追加するヘルパー（半径220m以内の同名・類似名スポットは統合し、より詳しい住所を採用）
+  // 重複排除付きで候補リストに追加するヘルパー（半径220m以内の同名・類似名スポットは統合し、より高品質な住所を優先）
   const pushCandidate = (cand) => {
     if (Number.isNaN(cand.lat) || Number.isNaN(cand.lng)) return false;
     const normCand = normalizeShrineText(cand.name);
+    const rawCandAddr = (cand.address || '').trim();
+    const cleanCandAddr = scoreAddressQuality(rawCandAddr) > 0 ? rawCandAddr : '';
 
     const existingIdx = rawCandidates.findIndex((ex) => {
       const dist = calcDistanceMeters(ex.lat, ex.lng, cand.lat, cand.lng);
@@ -781,20 +930,18 @@ export async function searchShrineCandidatesByName(
     const resolvedPref =
       cand.prefecture && ALL_PREFECTURES.includes(cand.prefecture)
         ? cand.prefecture
-        : extractPrefectureFromSpot(cand);
+        : extractPrefectureFromSpot({ ...cand, address: cleanCandAddr });
 
     if (existingIdx >= 0) {
       const ex = rawCandidates[existingIdx];
       let updated = false;
-      // 既存より住所情報が詳しければ補完する
+      const candQ = scoreAddressQuality(cleanCandAddr);
+      const exQ = scoreAddressQuality(ex.address);
       if (
-        (!ex.address ||
-          ex.address === '住所情報あり' ||
-          ex.address.length < (cand.address || '').length) &&
-        cand.address &&
-        cand.address !== '住所情報あり'
+        candQ > exQ ||
+        (candQ === exQ && candQ >= 2 && cleanCandAddr.length > (ex.address || '').length)
       ) {
-        ex.address = cand.address;
+        ex.address = cleanCandAddr;
         updated = true;
       }
       if (!ex.prefecture && resolvedPref) {
@@ -811,6 +958,7 @@ export async function searchShrineCandidatesByName(
     const distMeters = calcDistanceMeters(baseLat, baseLng, cand.lat, cand.lng);
     rawCandidates.push({
       ...cand,
+      address: cleanCandAddr,
       prefecture: resolvedPref,
       sampleGoshuin:
         cand.sampleGoshuin && cand.sampleGoshuin.length > 0
@@ -825,13 +973,18 @@ export async function searchShrineCandidatesByName(
 
   const normQuery = normalizeShrineText(cleanName);
 
-  const buildSortedSnapshot = () => {
-    const copy = [...rawCandidates];
+  const buildRankedRawList = () => {
+    const hasDirectMatch = rawCandidates.some(
+      (c) => getNameMatchTier(c.name, normQuery) >= 1
+    );
+    const copy = hasDirectMatch
+      ? rawCandidates.filter((c) => getNameMatchTier(c.name, normQuery) >= 1)
+      : [...rawCandidates];
+
     copy.sort((a, b) => {
       const tierA = getNameMatchTier(a.name, normQuery);
       const tierB = getNameMatchTier(b.name, normQuery);
 
-      // 「生田神社」検索でWikipedia関連記事の「長田神社」(tier 0) が距離で先頭に来る誤順を防ぐ
       if (tierA !== tierB) {
         return tierB - tierA;
       }
@@ -845,6 +998,11 @@ export async function searchShrineCandidatesByName(
     });
     return copy.slice(0, 60);
   };
+
+  const buildSortedSnapshot = () =>
+    buildRankedRawList().map((c) =>
+      c.address ? c : { ...c, address: c.prefecture || '' }
+    );
 
   // 1. アプリ内登録済みスポット（0ms即座にヒット）
   for (const s of localSpots || []) {
@@ -918,6 +1076,13 @@ export async function searchShrineCandidatesByName(
   ) {
     const aiGmapList = await searchViaGeminiGoogleMaps(cleanName, cleanArea, signal);
     emitIfChanged(aiGmapList, 'ai');
+  }
+
+  // 4. 住所が未設定または県名のみの候補について、上位10件を高速無料逆ジオコーディングで「都道府県＋市区町村＋町名」へ補完
+  const rankedRaw = buildRankedRawList();
+  const enrichedAny = await enrichCandidateAddresses(rankedRaw, signal, 10);
+  if (enrichedAny && onPartialResults && !signal?.aborted) {
+    onPartialResults(buildSortedSnapshot(), { stage: 'address' });
   }
 
   const finalResults = buildSortedSnapshot();
