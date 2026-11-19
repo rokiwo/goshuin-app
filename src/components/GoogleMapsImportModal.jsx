@@ -20,6 +20,7 @@ import {
   removeFavoriteSpot,
   extractPrefectureFromSpot
 } from '../db/database.js';
+import { filterAndGroupCandidatesByPrefecture } from '../services/shrineSearchService.js';
 
 /**
  * 本家Googleマップからの共有受け取り・URL/テキスト貼り付けによる「★お気に入り」取り込みモーダル
@@ -38,6 +39,8 @@ export default function GoogleMapsImportModal({
   const [needsManualName, setNeedsManualName] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [parsedInfo, setParsedInfo] = useState(null);
+  const [shareMeta, setShareMeta] = useState(null);
+  const [prefFilter, setPrefFilter] = useState('');
   const [isResolving, setIsResolving] = useState(false);
   const [statusNote, setStatusNote] = useState('');
   const skipNextAutoResolveRef = useRef(false);
@@ -59,6 +62,8 @@ export default function GoogleMapsImportModal({
 
     setIsResolving(true);
     setStatusNote('');
+    setPrefFilter('');
+    setShareMeta(null);
     try {
       const res = await resolveGoogleMapsShareToCandidates(
         payloadObj,
@@ -69,6 +74,10 @@ export default function GoogleMapsImportModal({
       setParsedInfo(res.parsed);
       setNeedsManualName(res.needsManualName);
       setCandidates(res.candidates || []);
+      setShareMeta({
+        isShortUrlNameOnlyFallback: Boolean(res.isShortUrlNameOnlyFallback),
+        shortUrlResolvedName: res.shortUrlResolvedName || ''
+      });
     } catch {
       setCandidates([]);
       setStatusNote('解析中にエラーが発生しました。神社・お寺名でも検索できます。');
@@ -311,6 +320,8 @@ export default function GoogleMapsImportModal({
                     setManualName('');
                     setCandidates([]);
                     setParsedInfo(null);
+                    setShareMeta(null);
+                    setPrefFilter('');
                     setNeedsManualName(false);
                     setStatusNote('');
                   }}
@@ -342,19 +353,61 @@ export default function GoogleMapsImportModal({
           )}
 
           {/* 候補一覧 */}
-          {candidates.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-serif font-bold text-sumi flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-tera" />
-                <span>
-                  {candidates.length === 1
-                    ? 'URLの神社・お寺を特定しました（1件）'
-                    : `一致した候補（${candidates.length}件）`}
-                </span>
-              </p>
-
+          {candidates.length > 0 && (() => {
+            const { prefOptions, hasMultiPrefs, visibleResults } =
+              filterAndGroupCandidatesByPrefecture(candidates, prefFilter);
+            return (
               <div className="space-y-2">
-                {candidates.slice(0, 12).map((cand) => {
+                <p className="text-xs font-serif font-bold text-sumi flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-tera" />
+                  <span>
+                    {visibleResults.length === 1
+                      ? 'URLの神社・お寺を特定しました（1件）'
+                      : `一致した候補（${visibleResults.length}件）`}
+                  </span>
+                </p>
+
+                {shareMeta?.isShortUrlNameOnlyFallback && (
+                  <p className="text-[11px] bg-amber-50 border border-amber-300 text-sumi rounded-xl px-2.5 py-2 leading-relaxed">
+                    ℹ 短縮URL（maps.app.goo.gl）はGoogle側の仕様で座標・県名が省略される場合があります。「
+                    {shareMeta.shortUrlResolvedName}」の全国候補を下の県タブから1タップで絞り込めます。
+                  </p>
+                )}
+
+                {hasMultiPrefs && (
+                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPrefFilter('')}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-serif font-bold whitespace-nowrap shrink-0 border transition ${
+                        !prefFilter
+                          ? 'bg-sumi text-kin border-kin'
+                          : 'bg-washi text-sumi border-kin/40 hover:border-kin'
+                      }`}
+                    >
+                      すべて ({candidates.length})
+                    </button>
+                    {prefOptions.map(([prefName, count]) => (
+                      <button
+                        key={prefName}
+                        type="button"
+                        onClick={() =>
+                          setPrefFilter((prev) => (prev === prefName ? '' : prefName))
+                        }
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-serif font-bold whitespace-nowrap shrink-0 border transition ${
+                          prefFilter === prefName
+                            ? 'bg-shuiro text-washi border-shuiro'
+                            : 'bg-washi text-sumi border-kin/40 hover:border-amber-500'
+                        }`}
+                      >
+                        {prefName} ({count})
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {visibleResults.slice(0, 12).map((cand) => {
                   const isFav = Boolean(favoriteMap[cand.id]);
                   const pref = cand.prefecture || extractPrefectureFromSpot(cand);
                   return (
@@ -420,10 +473,11 @@ export default function GoogleMapsImportModal({
                       </div>
                     </div>
                   );
-                })}
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {!isResolving && parsedInfo && !needsManualName && candidates.length === 0 && (
             <div className="rounded-xl bg-washi-dark/70 border border-kin/40 p-3 text-center text-xs text-sumi-muted">

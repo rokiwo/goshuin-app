@@ -22,7 +22,8 @@ import {
 import {
   searchShrineCandidatesByName,
   inferSpotTypeFromName,
-  buildDefaultSampleGoshuin
+  buildDefaultSampleGoshuin,
+  filterAndGroupCandidatesByPrefecture
 } from '../services/shrineSearchService.js';
 import { lookupShrinesAtTapCoordinate } from '../services/mapTapLookupService.js';
 import {
@@ -263,6 +264,8 @@ export default function MapView({
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchingName, setIsSearchingName] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchShareMeta, setSearchShareMeta] = useState(null);
+  const [searchPrefFilter, setSearchPrefFilter] = useState('');
   const [pinnedSearchSpots, setPinnedSearchSpots] = useState([]);
 
   // ★本家Googleマップ埋め込みモード（Googleマップに表示される全神社・寺院・口コミ・写真をそのままアプリ内で閲覧可能）
@@ -293,9 +296,11 @@ export default function MapView({
     else setTileStyleKey('google_road');
   };
 
-  // キーワード入力時のリアルタイム全国社寺検索（国土地理院＋OSM＋Wikipedia＋ローカル統合）
+  // キーワード入力時のリアルタイム全国社寺検索（ローカル即時＋国土地理院＋Wikipedia＋OSM逐次反映）
   useEffect(() => {
     const q = searchQuery.trim();
+    setSearchPrefFilter('');
+    setSearchShareMeta(null);
     if (q.length < 2) {
       setSearchResults([]);
       setIsSearchingName(false);
@@ -303,44 +308,63 @@ export default function MapView({
     }
 
     let cancelled = false;
+    const controller = new AbortController();
+    const isUrlQuery = isGoogleMapsInput(q);
     setIsSearchingName(true);
     setIsSearchOpen(true);
 
-    const timer = setTimeout(async () => {
-      try {
-        if (isGoogleMapsInput(q)) {
-          const resolved = await resolveGoogleMapsShareToCandidates(
-            { rawText: q },
-            spots,
-            mapCenter || searchCenter || userLocation
-          );
-          if (!cancelled) {
-            setSearchResults(resolved.candidates || []);
+    const timer = setTimeout(
+      async () => {
+        try {
+          if (isUrlQuery) {
+            const resolved = await resolveGoogleMapsShareToCandidates(
+              { rawText: q },
+              spots,
+              mapCenter || searchCenter || userLocation
+            );
+            if (!cancelled) {
+              setSearchResults(resolved.candidates || []);
+              setSearchShareMeta({
+                isShortUrlNameOnlyFallback: Boolean(resolved.isShortUrlNameOnlyFallback),
+                shortUrlResolvedName: resolved.shortUrlResolvedName || '',
+                isExactPinMatch: Boolean(resolved.isExactPinMatch)
+              });
+            }
+          } else {
+            const list = await searchShrineCandidatesByName(
+              q,
+              '',
+              spots,
+              mapCenter || searchCenter || userLocation,
+              {
+                signal: controller.signal,
+                onPartialResults: (partial) => {
+                  if (!cancelled && Array.isArray(partial) && partial.length > 0) {
+                    setSearchResults(partial);
+                  }
+                }
+              }
+            );
+            if (!cancelled) {
+              setSearchResults(list);
+            }
           }
-        } else {
-          const list = await searchShrineCandidatesByName(
-            q,
-            '',
-            spots,
-            mapCenter || searchCenter || userLocation
-          );
+        } catch {
           if (!cancelled) {
-            setSearchResults(list);
+            setSearchResults([]);
+          }
+        } finally {
+          if (!cancelled) {
+            setIsSearchingName(false);
           }
         }
-      } catch {
-        if (!cancelled) {
-          setSearchResults([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsSearchingName(false);
-        }
-      }
-    }, 280);
+      },
+      isUrlQuery ? 80 : 160
+    );
 
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [searchQuery, spots, userLocation]);
@@ -835,130 +859,184 @@ export default function MapView({
             </div>
           )}
 
-          {/* 検索候補ドロップダウン（都道府県バッジ＆★お気に入りボタン＆本家Gマップ確認ボタン付き） */}
-          {isSearchOpen && searchQuery.trim().length >= 2 && (
-            <div className="mt-1.5 max-h-60 overflow-y-auto rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
-              <div className="px-3 py-1.5 bg-sumi text-washi flex items-center justify-between text-[10px] font-serif">
-                <span className="flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-kin" />
-                  {isSearchingName
-                    ? isGoogleMapsInput(searchQuery)
-                      ? 'GoogleマップURLの地点を特定中...'
-                      : `「${searchQuery.trim()}」を全国検索中...`
-                    : isGoogleMapsInput(searchQuery) && searchResults.length === 1
-                    ? 'GoogleマップURLの場所を特定しました（★で登録・タップで移動）'
-                    : `候補 ${searchResults.length}件（タップで地図移動・★でお気に入り追加）`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsSearchOpen(false)}
-                  className="text-kin font-bold hover:underline"
-                >
-                  閉じる
-                </button>
-              </div>
+          {/* 検索候補ドロップダウン（都道府県ワンタップ絞込＆★お気に入りボタン＆本家Gマップ確認ボタン付き） */}
+          {isSearchOpen && searchQuery.trim().length >= 2 && (() => {
+            const { prefOptions, hasMultiPrefs, visibleResults } =
+              filterAndGroupCandidatesByPrefecture(searchResults, searchPrefFilter);
 
-              {!isSearchingName && searchResults.length === 0 ? (
-                <div className="p-3 text-center space-y-2">
-                  <p className="text-xs text-sumi-muted">
-                    {isGoogleMapsInput(searchQuery)
-                      ? '短縮URL単体のため、神社名も入力するとすぐ登録できます。'
-                      : '候補が見つかりませんでした。'}
-                  </p>
-                  {isGoogleMapsInput(searchQuery) && onOpenGmapImport ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSearchOpen(false);
-                        onOpenGmapImport(searchQuery.trim());
-                      }}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-xs font-serif font-bold shadow"
-                    >
-                      <Link2 className="w-3.5 h-3.5" />
-                      <span>URLと名前から★お気に入り追加を開く</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsGoogleEmbedMode(true);
-                        setIsSearchOpen(false);
-                      }}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-shuiro text-washi text-xs font-serif font-bold shadow"
-                    >
-                      <span>本家Googleマップ画面で「{searchQuery.trim()}」を表示</span>
-                    </button>
-                  )}
+            return (
+              <div className="mt-1.5 max-h-72 overflow-y-auto rounded-2xl bg-washi/95 backdrop-blur-md border-2 border-kin shadow-2xl divide-y divide-washi-border animate-slide-up">
+                <div className="px-3 py-1.5 bg-sumi text-washi flex items-center justify-between text-[10px] font-serif sticky top-0 z-10">
+                  <span className="flex items-center gap-1 min-w-0 truncate">
+                    <Sparkles className="w-3 h-3 text-kin shrink-0" />
+                    <span className="truncate">
+                      {isSearchingName && searchResults.length === 0
+                        ? isGoogleMapsInput(searchQuery)
+                          ? 'GoogleマップURLの地点を高速特定中...'
+                          : `「${searchQuery.trim()}」を検索中...`
+                        : isGoogleMapsInput(searchQuery) && searchResults.length === 1
+                        ? 'GoogleマップURLの場所を1件特定しました（★で登録・タップで移動）'
+                        : isSearchingName
+                        ? `候補 ${searchResults.length}件（追加取得中...）`
+                        : `候補 ${visibleResults.length}件（タップで地図移動・★でお気に入り追加）`}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsSearchOpen(false)}
+                    className="text-kin font-bold hover:underline shrink-0 ml-2"
+                  >
+                    閉じる
+                  </button>
                 </div>
-              ) : (
-                searchResults.map((cand) => {
-                  const isFav = Boolean(favoriteMap[cand.id]);
-                  const isVisited = Boolean(visitMap[cand.id]?.visited);
-                  const pref = cand.prefecture || extractPrefectureFromSpot(cand);
-                  return (
-                    <div
-                      key={cand.id}
-                      onClick={() => handlePickSearchResult(cand)}
-                      className="p-2.5 hover:bg-washi-dark/70 transition flex items-center justify-between gap-2 cursor-pointer"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-washi ${
-                              cand.type === 'temple' ? 'bg-tera' : 'bg-shuiro'
-                            }`}
-                          >
-                            {cand.type === 'temple' ? '寺院' : '神社'}
-                          </span>
-                          {pref && (
-                            <span className="px-1.5 py-0.5 rounded bg-kin/25 text-sumi font-serif font-bold text-[10px]">
-                              {pref}
-                            </span>
-                          )}
-                          <span className="font-serif font-bold text-xs text-sumi truncate">
-                            {cand.name}
-                          </span>
-                          {isVisited && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-shuiro/15 text-shuiro font-bold">
-                              参拝済
-                            </span>
-                          )}
-                          {cand.distanceLabel && (
-                            <span className="text-[10px] text-kin-dark font-medium">
-                              ({cand.distanceLabel})
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-sumi-muted truncate mt-0.5 flex items-center gap-1">
-                          <MapPin className="w-2.5 h-2.5 text-shuiro shrink-0" />
-                          <span>{cand.address}</span>
-                        </p>
-                      </div>
 
-                      {/* ワンタップお気に入り登録ボタン */}
+                {/* 短縮URLでGoogle側が座標/県を返さない場合の正直な案内＋県名追加入力ヒント */}
+                {!isSearchingName && searchShareMeta?.isShortUrlNameOnlyFallback && (
+                  <div className="px-3 py-2 bg-amber-50 text-[10px] text-sumi leading-relaxed">
+                    <span className="font-bold text-amber-800">
+                      ℹ 短縮URL（maps.app.goo.gl）はGoogle側の仕様で座標・県名が省略される場合があります。
+                    </span>
+                    <span className="text-sumi-muted">
+                      「{searchShareMeta.shortUrlResolvedName}」の全国候補から下の県タブで即絞り込みできます（地図の神社を直接タップでも登録可）。
+                    </span>
+                  </div>
+                )}
+
+                {/* 複数都道府県に同名候補がある場合の1タップ絞り込みチップ */}
+                {hasMultiPrefs && (
+                  <div className="px-2.5 py-1.5 bg-washi-dark/60 flex items-center gap-1 overflow-x-auto no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setSearchPrefFilter('')}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-serif font-bold whitespace-nowrap shrink-0 border transition ${
+                        !searchPrefFilter
+                          ? 'bg-sumi text-kin border-kin'
+                          : 'bg-washi text-sumi border-kin/40 hover:border-kin'
+                      }`}
+                    >
+                      すべて ({searchResults.length})
+                    </button>
+                    {prefOptions.map(([prefName, count]) => (
+                      <button
+                        key={prefName}
+                        type="button"
+                        onClick={() =>
+                          setSearchPrefFilter((prev) => (prev === prefName ? '' : prefName))
+                        }
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-serif font-bold whitespace-nowrap shrink-0 border transition ${
+                          searchPrefFilter === prefName
+                            ? 'bg-shuiro text-washi border-shuiro'
+                            : 'bg-washi text-sumi border-kin/40 hover:border-amber-500'
+                        }`}
+                      >
+                        {prefName} ({count})
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!isSearchingName && visibleResults.length === 0 ? (
+                  <div className="p-3 text-center space-y-2">
+                    <p className="text-xs text-sumi-muted">
+                      {isGoogleMapsInput(searchQuery)
+                        ? '短縮URLだけでは地点を特定できませんでした。神社名（例: 香川 白鳥神社）でもすぐ検索できます。'
+                        : '候補が見つかりませんでした。'}
+                    </p>
+                    {isGoogleMapsInput(searchQuery) && onOpenGmapImport ? (
                       <button
                         type="button"
-                        onClick={(e) => handleToggleFav(e, cand)}
-                        className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 shrink-0 active:scale-95 transition ${
-                          isFav
-                            ? 'bg-amber-400 text-sumi border-amber-600 shadow-sm'
-                            : 'bg-washi border-kin/50 text-sumi hover:border-amber-500'
-                        }`}
-                        title="お気に入りに登録して都道府県別に保存"
+                        onClick={() => {
+                          setIsSearchOpen(false);
+                          onOpenGmapImport(searchQuery.trim());
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-400 text-sumi border border-amber-600 text-xs font-serif font-bold shadow"
                       >
-                        <Star
-                          className={`w-3.5 h-3.5 ${
-                            isFav ? 'fill-sumi text-sumi' : 'text-amber-500'
-                          }`}
-                        />
-                        <span>{isFav ? '登録済' : 'お気に入り'}</span>
+                        <Link2 className="w-3.5 h-3.5" />
+                        <span>URLと名前から★お気に入り追加を開く</span>
                       </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsGoogleEmbedMode(true);
+                          setIsSearchOpen(false);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-shuiro text-washi text-xs font-serif font-bold shadow"
+                      >
+                        <span>本家Googleマップ画面で「{searchQuery.trim()}」を表示</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  visibleResults.map((cand) => {
+                    const isFav = Boolean(favoriteMap[cand.id]);
+                    const isVisited = Boolean(visitMap[cand.id]?.visited);
+                    const pref = cand.prefecture || extractPrefectureFromSpot(cand);
+                    return (
+                      <div
+                        key={cand.id}
+                        onClick={() => handlePickSearchResult(cand)}
+                        className="p-2.5 hover:bg-washi-dark/70 transition flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-washi ${
+                                cand.type === 'temple' ? 'bg-tera' : 'bg-shuiro'
+                              }`}
+                            >
+                              {cand.type === 'temple' ? '寺院' : '神社'}
+                            </span>
+                            {pref && (
+                              <span className="px-1.5 py-0.5 rounded bg-kin/25 text-sumi font-serif font-bold text-[10px]">
+                                {pref}
+                              </span>
+                            )}
+                            <span className="font-serif font-bold text-xs text-sumi truncate">
+                              {cand.name}
+                            </span>
+                            {isVisited && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-shuiro/15 text-shuiro font-bold">
+                                参拝済
+                              </span>
+                            )}
+                            {cand.distanceLabel && (
+                              <span className="text-[10px] text-kin-dark font-medium">
+                                ({cand.distanceLabel})
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-sumi-muted truncate mt-0.5 flex items-center gap-1">
+                            <MapPin className="w-2.5 h-2.5 text-shuiro shrink-0" />
+                            <span>{cand.address}</span>
+                          </p>
+                        </div>
+
+                        {/* ワンタップお気に入り登録ボタン */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleFav(e, cand)}
+                          className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-serif font-bold flex items-center gap-1 shrink-0 active:scale-95 transition ${
+                            isFav
+                              ? 'bg-amber-400 text-sumi border-amber-600 shadow-sm'
+                              : 'bg-washi border-kin/50 text-sumi hover:border-amber-500'
+                          }`}
+                          title="お気に入りに登録して都道府県別に保存"
+                        >
+                          <Star
+                            className={`w-3.5 h-3.5 ${
+                              isFav ? 'fill-sumi text-sumi' : 'text-amber-500'
+                            }`}
+                          />
+                          <span>{isFav ? '登録済' : 'お気に入り'}</span>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* ★「お気に入り」表示中に出る県別ワンタップ切替バー（普段は隠れ、必要な県だけを見やすく表示） */}
