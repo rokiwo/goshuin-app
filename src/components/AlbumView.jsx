@@ -380,7 +380,7 @@ export default function AlbumView({
           <button
             type="button"
             onClick={() => setSelectedBookId('all')}
-            className={`px-3 py-1.5 rounded-full text-xs font-serif font-bold transition flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-full text-xs font-serif font-bold transition flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               selectedBookId === 'all'
                 ? 'bg-shuiro text-washi shadow-md border border-kin'
                 : 'bg-washi text-sumi-muted border border-washi-border hover:text-sumi'
@@ -431,44 +431,45 @@ export default function AlbumView({
 
       {/* ★実物の御朱印帳が選択されている場合の専用カバー表示 */}
       {selectedBookId !== 'all' && activeBook ? (
-        <div className="relative rounded-3xl bg-gradient-to-br from-[#2c2826] via-[#1f1d1b] to-[#121110] text-washi p-5 border-2 border-kin shadow-2xl overflow-hidden animate-fade-in">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-1.5">
-              <span className="px-2.5 py-0.5 rounded-full bg-kin text-sumi font-serif font-black text-[10px]">
+        <div className="relative rounded-3xl bg-gradient-to-br from-[#2c2826] via-[#1f1d1b] to-[#121110] text-washi p-4 sm:p-5 border-2 border-kin shadow-2xl overflow-hidden animate-fade-in">
+          <div className="space-y-2.5 mb-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-kin text-sumi font-serif font-black text-[10px] whitespace-nowrap shrink-0">
                 実物の御朱印帳
               </span>
-              <span className="text-xs text-washi/70 font-serif">
+              <span className="text-xs text-washi/80 font-serif whitespace-nowrap">
                 収載 {totalVisited} 枚
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               <button
                 type="button"
                 onClick={() => {
                   setEditingBook(activeBook);
                   setIsBookModalOpen(true);
                 }}
-                className="px-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 text-washi text-[11px] font-serif font-bold flex items-center gap-1 border border-white/20 active:scale-95 transition"
+                className="px-2 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-washi text-[11px] font-serif font-bold flex items-center justify-center gap-1 border border-white/20 active:scale-95 transition whitespace-nowrap"
+                title="表紙写真・冊の名前・メモを編集"
               >
-                <Settings className="w-3 h-3 text-kin" />
-                <span>表紙・情報を編集</span>
+                <Settings className="w-3 h-3 text-kin shrink-0" />
+                <span>表紙・編集</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsAssignModalOpen(true)}
-                className="px-2.5 py-1 rounded-full bg-kin/20 hover:bg-kin/30 text-kin-light text-[11px] font-serif font-bold flex items-center gap-1 border border-kin/40 active:scale-95 transition"
+                className="px-2 py-1.5 rounded-xl bg-kin/20 hover:bg-kin/30 text-kin-light text-[11px] font-serif font-bold flex items-center justify-center gap-1 border border-kin/40 active:scale-95 transition whitespace-nowrap"
                 title="登録済みの御朱印をこの冊にまとめて追加・解除"
               >
-                <Layers className="w-3 h-3 text-kin" />
-                <span>御朱印を振り分け</span>
+                <Layers className="w-3 h-3 text-kin shrink-0" />
+                <span>振り分け</span>
               </button>
               <button
                 type="button"
                 onClick={onOpenAddPastModal}
-                className="px-3 py-1 rounded-full bg-shuiro text-washi border border-kin text-xs font-serif font-bold flex items-center gap-1 shadow active:scale-95 transition"
+                className="px-2 py-1.5 rounded-xl bg-shuiro text-washi border border-kin text-[11px] font-serif font-bold flex items-center justify-center gap-1 shadow active:scale-95 transition whitespace-nowrap"
               >
-                <PlusCircle className="w-3 h-3" />
+                <PlusCircle className="w-3 h-3 shrink-0" />
                 <span>新規追加</span>
               </button>
             </div>
