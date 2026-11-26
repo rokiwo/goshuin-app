@@ -210,7 +210,8 @@ async function callGeminiApi({
 export async function generateSpotAiGuide(spot) {
   const prompt = `
 あなたは日本の神社仏閣と御朱印文化に精通した専門リサーチャーです。
-以下の寺社について、Web（神社庁・公式サイト・ホトカミ・Omairi・Instagram等の投稿傾向）で知られている実際の授与御朱印情報と由緒をJSON形式で作成してください。
+以下の「所在地が一致する特定の1寺社」について、ホトカミ（hotokami.jp）・Omairi・公式サイト等の授与実績に基づきJSON形式で作成してください。
+※全国に同名の神社・寺院がある場合は、必ず所在地「${spot.address || '日本'}」（緯度:${spot.lat}, 経度:${spot.lng}）の寺社だけに限定し、他県・他地域の同名神社の御朱印情報を絶対に混ぜないでください。
 
 【対象寺社】
 - 名称: ${spot.name}
@@ -220,8 +221,8 @@ export async function generateSpotAiGuide(spot) {
 - 緯度経度: ${spot.lat}, ${spot.lng}
 
 【重要】
-- realGoshuinList には、この寺社で実際に授与されている（またはSNS・御朱印サイトで報告されている）具体的な御朱印の種類（例：通常御朱印、季節の切り絵御朱印、月替わり御朱印、札所御朱印など）と、デザインの特徴（どんな印やイラスト・文字が入っているか）、初穂料目安、授与形態（直書き／書き置き等）を2〜3件挙げてください。
-- もし無人社等で御朱印の有無が不確定な場合は、本務社（兼務社）で授与されるケースや確認方法を明記してください。
+- realGoshuinList には、この所在地の寺社で実際に授与されている（ホトカミ等で確認されている）御朱印の種類、デザイン特徴、初穂料目安、授与形態（直書き／書き置き等）を2〜3件挙げてください。
+- もし無人社等で御朱印の有無が不確定な場合は、本務社（兼務社）で授与されるケースや事前確認方法を明記してください。
 `;
 
   const schema = {
@@ -287,7 +288,7 @@ export async function generateSpotAiGuide(spot) {
   });
 
   try {
-    const searchPrompt = `「${spot.name}」（${spot.address}）で実際に授与されている御朱印の種類、最新の限定御朱印、初穂料、受付時間についてWeb上の情報を簡潔にまとめてください。`;
+    const searchPrompt = `site:hotokami.jp または公式情報をもとに、「${spot.name}」（所在地: ${spot.address}）の御朱印授与実績（確実に御朱印があるか・直書き/書置き・最新の限定御朱印・初穂料・受付時間）を、他県の同名社寺と絶対に混同しないよう注意して簡潔にまとめてください。`;
     const grounded = await callGeminiApi({
       parts: [{ text: searchPrompt }],
       useGoogleSearch: true,
@@ -441,11 +442,18 @@ export async function generateAiPilgrimageRoute({
   transportMode = 'walk_train',
   durationHours = 3
 }) {
-  const candidateSpots = spots.slice(0, 18).map((s) => ({
+  // 御朱印有力（hasGoshuin=true）の社寺を最優先で候補に選ぶ（無人小祠を除外）
+  const prioritizedSpots = [
+    ...spots.filter((s) => s.hasGoshuin),
+    ...spots.filter((s) => !s.hasGoshuin)
+  ];
+  const candidateSpots = prioritizedSpots.slice(0, 18).map((s) => ({
     id: s.id,
     name: s.name,
+    address: s.address || '',
     type: s.type === 'shrine' ? '神社' : '寺院',
     denomination: s.denomination,
+    hasGoshuinLikely: Boolean(s.hasGoshuin),
     distanceKm: s.distanceKm,
     visited: Boolean(visitMap[s.id]?.visited)
   }));
@@ -461,7 +469,9 @@ export async function generateAiPilgrimageRoute({
 あなたは御朱印めぐりの旅プランナーです。
 現在地（緯度:${userLocation.lat}, 経度:${userLocation.lng}）の周辺にある以下の神社仏閣リストから、
 「${modeLabel}」「所要時間：約${durationHours}時間」で楽しく回れる最適な御朱印めぐりコース（3〜5箇所）を提案してください。
-未参拝のスポットを優先しつつ、地理的に無理のない順番で組んでください。
+【必須ルール】
+- ホトカミ（hotokami.jp）や公式情報で御朱印の授与実績が確実にある有名な神社・寺院（hasGoshuinLikely: true 等）だけを厳選し、御朱印のない小さな無人祠は選ばないでください。
+- 未参拝のスポットを優先しつつ、地理的に無理のない順番で組んでください。
 
 【候補スポット一覧】
 ${JSON.stringify(candidateSpots, null, 2)}

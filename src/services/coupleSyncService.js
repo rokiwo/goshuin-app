@@ -8,6 +8,53 @@ import {
 
 const STORAGE_KEY_PASSCODE = 'goshuin_couple_passcode';
 const STORAGE_KEY_LAST_SYNC = 'goshuin_couple_last_sync';
+const STORAGE_KEY_PENDING_DEL_FAVS = 'goshuin_pending_deleted_favs';
+
+// ★連続お気に入り操作や同時同期による上書き競合を防ぐ直列ロックキュー
+let activeSyncPromise = null;
+let pendingRerunAfterActive = false;
+let lastAutoSyncStartedAt = 0;
+
+function readPendingDeletedFavs() {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(STORAGE_KEY_PENDING_DEL_FAVS);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePendingDeletedFavs(mapObj) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (!mapObj || Object.keys(mapObj).length === 0) {
+      localStorage.removeItem(STORAGE_KEY_PENDING_DEL_FAVS);
+    } else {
+      localStorage.setItem(STORAGE_KEY_PENDING_DEL_FAVS, JSON.stringify(mapObj));
+    }
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function markLocalFavoriteDeleted(spotId, deletedAtIso = new Date().toISOString()) {
+  if (!spotId) return;
+  const cur = readPendingDeletedFavs();
+  cur[spotId] = deletedAtIso;
+  writePendingDeletedFavs(cur);
+}
+
+export function clearLocalFavoriteDeleted(spotId) {
+  if (!spotId) return;
+  const cur = readPendingDeletedFavs();
+  if (cur[spotId]) {
+    delete cur[spotId];
+    writePendingDeletedFavs(cur);
+  }
+}
 
 // ふたりカレと同方式：AES-GCM 256bit で暗号化され、合言葉（0731）を知っている2人しか復号できないクラウド保管庫
 const T_ARR = [
@@ -204,7 +251,7 @@ export function getLastSyncTime() {
  * クラウド（Secret Gist ＆ リポジトリ暗号化バンドル）から最新の共有データを取得する
  * ★万一ファイルサイズが大きい場合（Gistのtruncated=true）も raw_url から100%完全取得します
  */
-async function fetchCloudVault() {
+async function fetchCloudVault(forWrite = false) {
   const { token, gistId } = getCloudVaultCredentials();
   const emptyVault = {
     visitsMap: {},
@@ -217,7 +264,9 @@ async function fetchCloudVault() {
     updatedAt: new Date().toISOString()
   };
 
-  // 1. Secret Gist から最新データを取得
+  let gistNetworkFailed = false;
+
+  // 1. Secret Gist から最新データを取得（キャッシュ完全無効化）
   try {
     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
       method: 'GET',
@@ -235,12 +284,16 @@ async function fetchCloudVault() {
 
       if (fileObj) {
         let rawContent = fileObj.content || '';
-        // 写真が多くて1MBを超え truncated になった場合は raw_url から全文取得
+        // 写真が多くて1MBを超え truncated になった場合は raw_url（キャッシュバスター付き）から全文取得
         if (fileObj.truncated && fileObj.raw_url) {
-          const rawRes = await fetch(fileObj.raw_url, { cache: 'no-store' });
-          if (rawRes.ok) {
-            rawContent = await rawRes.text();
+          const sep = fileObj.raw_url.includes('?') ? '&' : '?';
+          const rawRes = await fetch(`${fileObj.raw_url}${sep}t=${Date.now()}`, {
+            cache: 'no-store'
+          });
+          if (!rawRes.ok) {
+            throw new Error(`Gist raw fetch failed (${rawRes.status})`);
           }
+          rawContent = await rawRes.text();
         }
         if (rawContent) {
           const parsed = JSON.parse(rawContent);
@@ -248,12 +301,20 @@ async function fetchCloudVault() {
           if (decrypted) return decrypted;
         }
       }
+    } else if (res.status !== 404) {
+      gistNetworkFailed = true;
     }
   } catch (err) {
+    gistNetworkFailed = true;
     console.warn('Gist vault fetch warning:', err);
   }
 
-  // 2. フォールバック：アプリ同梱の暗号化データファイル（couple-vault-encrypted.json）から取得
+  // ★重要：書き込み同期時にGist通信が一時エラーだった場合、古い同梱JSONで上書きして相手のお気に入りを消さないよう中断する
+  if (forWrite && gistNetworkFailed) {
+    throw new Error('クラウド保管庫への一時的な通信エラーのため、上書き防止のため同期を保留しました。');
+  }
+
+  // 2. フォールバック（初回または読み取り専用時のみ）：アプリ同梱の暗号化データファイルから取得
   try {
     const localBundleRes = await fetch(`${RAW_VAULT_URL}?t=${Date.now()}`, {
       cache: 'no-store'
@@ -341,7 +402,7 @@ export async function deleteCoupleGoshuinRecord(spotId) {
     return { ok: false, skipped: true };
   }
 
-  const cloudData = await fetchCloudVault();
+  const cloudData = await fetchCloudVault(true);
   const visitsMap = cloudData.visitsMap || {};
   const deletedMap = cloudData.deletedMap || {};
 
@@ -367,7 +428,7 @@ export async function deleteCoupleGoshuinBook(bookId) {
     return { ok: false, skipped: true };
   }
 
-  const cloudData = await fetchCloudVault();
+  const cloudData = await fetchCloudVault(true);
   const booksMap = cloudData.booksMap || {};
   const deletedBooksMap = cloudData.deletedBooksMap || {};
 
@@ -393,29 +454,63 @@ export async function deleteCoupleFavoriteSpot(spotId) {
     return { ok: false, skipped: true };
   }
 
-  const cloudData = await fetchCloudVault();
-  const favoritesMap = cloudData.favoritesMap || {};
-  const deletedFavoritesMap = cloudData.deletedFavoritesMap || {};
+  markLocalFavoriteDeleted(spotId);
+  return syncCoupleGoshuinData();
+}
 
-  delete favoritesMap[spotId];
-  deletedFavoritesMap[spotId] = new Date().toISOString();
-
-  await saveCloudVault({
-    ...cloudData,
-    favoritesMap,
-    deletedFavoritesMap,
-    updatedAt: new Date().toISOString()
-  });
-
-  return { ok: true, deletedFavoriteId: spotId };
+/**
+ * 画面復帰時やタブ切替時に負荷を抑えて自動同期するヘルパー
+ */
+export async function syncCoupleIfConnectedThrottled(minIntervalMs = 8000) {
+  if (!getSavedCouplePasscode().trim()) {
+    return { ok: false, skipped: true };
+  }
+  const now = Date.now();
+  if (now - lastAutoSyncStartedAt < minIntervalMs) {
+    return { ok: false, throttled: true };
+  }
+  lastAutoSyncStartedAt = now;
+  return syncCoupleGoshuinData();
 }
 
 /**
  * クラウド（AES-GCM 256bit 暗号化保管庫）と端末内（IndexedDB）の御朱印帳・お気に入りデータを双方向マージ同期する関数
- * ★URLを知っているだけの第三者には一切見えず、合言葉「0731」を入力したお二人の端末だけで完全共有されます
+ * ★連続でお気に入りON/OFFを押した際の上書き競合を防ぐため直列キューで安全に実行します
  * @param {string} customPasscode 入力された合言葉（省略時は保存済み合言葉を使用）
  */
 export async function syncCoupleGoshuinData(customPasscode = null) {
+  if (customPasscode !== null) {
+    if (activeSyncPromise) {
+      await activeSyncPromise.catch(() => {});
+    }
+    return runSingleCoupleSync(customPasscode);
+  }
+
+  if (activeSyncPromise) {
+    pendingRerunAfterActive = true;
+    return activeSyncPromise;
+  }
+
+  const runner = (async () => {
+    let lastResult = { ok: false, skipped: true };
+    do {
+      pendingRerunAfterActive = false;
+      lastResult = await runSingleCoupleSync(null);
+    } while (pendingRerunAfterActive);
+    return lastResult;
+  })();
+
+  activeSyncPromise = runner;
+  try {
+    return await runner;
+  } finally {
+    if (activeSyncPromise === runner) {
+      activeSyncPromise = null;
+    }
+  }
+}
+
+async function runSingleCoupleSync(customPasscode = null) {
   const passcode = (customPasscode !== null ? customPasscode : getSavedCouplePasscode()).trim();
   if (!passcode) {
     return { ok: false, skipped: true };
@@ -425,12 +520,16 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     throw new Error('合言葉が正しくありません。（合言葉: 0731）');
   }
 
-  // 1. 現在のスマホ内の全参拝レコード・実物御朱印帳・お気に入りを取得
+  // 1. クラウドから最新の暗号化共有データを取得・復号（forWrite=trueで古いCDNフォールバック上書きを防止）
+  const cloudData = await fetchCloudVault(true);
+
+  // 2. 現在のスマホ内の全参拝レコード・実物御朱印帳・お気に入り・未送信削除キューを最新状態で取得
   const localVisits = await db.visits.toArray();
   const localBooks = await db.books.toArray();
   const localFavorites = await db.favorites.toArray();
+  const pendingDeletedFavsSnapshot = readPendingDeletedFavs();
 
-  // 2. 現在の設定（Gemini APIキー、御朱印帳テーマなど）を取得
+  // 3. 現在の設定（Gemini APIキー、御朱印帳テーマなど）を取得
   const currentSettings = {
     geminiApiKey: getGeminiApiKey(),
     geminiModel: getGeminiModel(),
@@ -438,15 +537,28 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     bookTitle: localStorage.getItem('goshuin_book_title') || ''
   };
 
-  // 3. クラウドから現在の暗号化共有データを取得・復号
-  const cloudData = await fetchCloudVault();
-
   const visitsMap = cloudData.visitsMap || {};
   const deletedMap = cloudData.deletedMap || {};
   const booksMap = cloudData.booksMap || {};
   const deletedBooksMap = cloudData.deletedBooksMap || {};
   const favoritesMap = cloudData.favoritesMap || {};
   const deletedFavoritesMap = cloudData.deletedFavoritesMap || {};
+
+  // 3b. この端末で行われたお気に入り削除（オフライン時含む）をクラウド側へ確実に反映
+  for (const [delSpotId, delIso] of Object.entries(pendingDeletedFavsSnapshot)) {
+    if (!delSpotId || !delIso) continue;
+    const prevDelIso = deletedFavoritesMap[delSpotId] || '';
+    if (!prevDelIso || delIso > prevDelIso) {
+      deletedFavoritesMap[delSpotId] = delIso;
+    }
+    const cloudFav = favoritesMap[delSpotId];
+    if (cloudFav) {
+      const cloudTime = cloudFav.updatedAt || cloudFav.createdAt || '';
+      if (!cloudTime || delIso >= cloudTime) {
+        delete favoritesMap[delSpotId];
+      }
+    }
+  }
 
   // 4. 御朱印記録（visits）の双方向マージ
   for (const clientRec of localVisits) {
@@ -500,22 +612,44 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     }
   }
 
-  // 6. お気に入り神社・お寺（favorites）の双方向マージ
+  // 6. お気に入り神社・お寺（favorites）の双方向マージ＋座標数値正規化
   for (const fav of localFavorites) {
     if (!fav || !fav.spotId) continue;
-    const t = fav.updatedAt || fav.createdAt || '';
-    const delT = deletedFavoritesMap[fav.spotId] || '';
+    const normalizedFav = {
+      ...fav,
+      lat: fav.lat !== undefined && fav.lat !== null ? Number(fav.lat) : undefined,
+      lng: fav.lng !== undefined && fav.lng !== null ? Number(fav.lng) : undefined
+    };
+    const t = normalizedFav.updatedAt || normalizedFav.createdAt || '';
+    const delT = deletedFavoritesMap[normalizedFav.spotId] || '';
     if (delT && delT >= t) {
-      delete favoritesMap[fav.spotId];
+      delete favoritesMap[normalizedFav.spotId];
       continue;
     }
     if (delT && t > delT) {
-      delete deletedFavoritesMap[fav.spotId];
+      delete deletedFavoritesMap[normalizedFav.spotId];
     }
-    const ex = favoritesMap[fav.spotId];
+    const ex = favoritesMap[normalizedFav.spotId];
     if (!ex || t >= (ex.updatedAt || ex.createdAt || '')) {
-      favoritesMap[fav.spotId] = fav;
+      favoritesMap[normalizedFav.spotId] = normalizedFav;
     }
+  }
+
+  // クラウドから届いたお気に入りも座標を数値正規化して地図から漏れないようにする
+  for (const [favId, favObj] of Object.entries(favoritesMap)) {
+    if (!favObj) continue;
+    const delT = deletedFavoritesMap[favId] || '';
+    const favT = favObj.updatedAt || favObj.createdAt || '';
+    if (delT && (!favT || delT >= favT)) {
+      delete favoritesMap[favId];
+      continue;
+    }
+    favoritesMap[favId] = {
+      ...favObj,
+      spotId: favObj.spotId || favId,
+      lat: favObj.lat !== undefined && favObj.lat !== null ? Number(favObj.lat) : undefined,
+      lng: favObj.lng !== undefined && favObj.lng !== null ? Number(favObj.lng) : undefined
+    };
   }
 
   // 7. 設定（APIキー等）のマージ
@@ -549,7 +683,20 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
   // 8. クラウド（Secret Gist ＆ リポジトリ暗号化ファイル）へAES-GCM 256bit暗号化保存
   await saveCloudVault(nextCloudData);
 
-  // 9. クラウド側で削除済みのIDがあれば端末内からも削除
+  // 8b. クラウド保存完了済みのローカル削除キューをクリア（保存中に新しく削除された分は残す）
+  const latestPendingDel = readPendingDeletedFavs();
+  let pendingChanged = false;
+  for (const [delSpotId, syncedIso] of Object.entries(pendingDeletedFavsSnapshot)) {
+    if (latestPendingDel[delSpotId] === syncedIso) {
+      delete latestPendingDel[delSpotId];
+      pendingChanged = true;
+    }
+  }
+  if (pendingChanged) {
+    writePendingDeletedFavs(latestPendingDel);
+  }
+
+  // 9. クラウド側で削除済みのIDがあれば端末内からも削除（同期中に再追加された新しいデータは保護）
   const deletedSpotIds = Object.keys(deletedMap);
   if (deletedSpotIds.length > 0) {
     await db.visits.bulkDelete(deletedSpotIds);
@@ -558,7 +705,7 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
   if (deletedBookIds.length > 0) {
     await db.books.bulkDelete(deletedBookIds);
   }
-  const deletedFavoriteIds = Object.keys(deletedFavoritesMap);
+  const deletedFavoriteIds = Object.keys(deletedFavoritesMap).filter((id) => !favoritesMap[id]);
   if (deletedFavoriteIds.length > 0) {
     await db.favorites.bulkDelete(deletedFavoriteIds);
   }
@@ -592,6 +739,17 @@ export async function syncCoupleGoshuinData(customPasscode = null) {
     minute: '2-digit'
   });
   localStorage.setItem(STORAGE_KEY_LAST_SYNC, nowDisplay);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('goshuin-couple-synced', {
+        detail: {
+          syncedAt: nowDisplay,
+          totalFavoritesSynced: mergedFavoritesList.length
+        }
+      })
+    );
+  }
 
   return {
     ok: true,

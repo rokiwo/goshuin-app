@@ -99,13 +99,70 @@ const COVER_THEMES = [
   }
 ];
 
-function getPilgrimRank(count) {
-  if (count === 0) return { title: 'はじまりの参拝者', next: 1, icon: '🌱' };
-  if (count < 3) return { title: '初穂の旅人', next: 3, icon: '🌸' };
-  if (count < 7) return { title: '御朱印めぐり見習い', next: 7, icon: '⛩️' };
-  if (count < 15) return { title: '福徳の巡拝者', next: 15, icon: '✨' };
-  if (count < 30) return { title: '神社仏閣ソムリエ', next: 30, icon: '🕊️' };
-  return { title: '天下無双の御朱印マイスター', next: 50, icon: '👑' };
+const PILGRIM_RANK_TIERS = [
+  { min: 0, next: 1, level: 0, title: 'はじまりの参拝者', icon: '🌱' },
+  { min: 1, next: 3, level: 1, title: '初穂の旅人', icon: '🌸' },
+  { min: 3, next: 7, level: 2, title: '御朱印めぐり見習い', icon: '⛩️' },
+  { min: 7, next: 15, level: 3, title: '福徳の巡拝者', icon: '✨' },
+  { min: 15, next: 30, level: 4, title: '神社仏閣ソムリエ', icon: '🕊️' },
+  { min: 30, next: 50, level: 5, title: '御朱印マイスター', icon: '👑' },
+  { min: 50, next: 75, level: 6, title: '朱印帳の達人', icon: '🦊' },
+  { min: 75, next: 100, level: 7, title: '百社めぐり候補生', icon: '🏮' },
+  { min: 100, next: 150, level: 8, title: '百社達成・大願巡礼師', icon: '🐉' },
+  { min: 150, next: 200, level: 9, title: '雅の社寺案内人', icon: '🌙' },
+  { min: 200, next: 300, level: 10, title: '二百社達成・霊場踏破師', icon: '🔥' },
+  { min: 300, next: 400, level: 11, title: '三百社達成・神仏の語り部', icon: '💎' },
+  { min: 400, next: 500, level: 12, title: '天下の御朱印大名', icon: '🏯' },
+  { min: 500, next: 700, level: 13, title: '五百社達成・国宝級巡拝家', icon: '🌟' },
+  { min: 700, next: 1000, level: 14, title: '八百万の結縁マスター', icon: '🌌' }
+];
+
+export function getPilgrimRank(rawCount) {
+  const count = Math.max(0, Number(rawCount) || 0);
+  if (count >= 1000) {
+    const step = Math.floor((count - 1000) / 100);
+    const min = 1000 + step * 100;
+    const next = min + 100;
+    const stars = step > 0 ? `・極${step}段` : '';
+    const nextStars = `・極${step + 1}段`;
+    return {
+      level: 15 + step,
+      title: `千社達成・伝説の大巡礼神${stars}`,
+      icon: '🏛️',
+      prev: min,
+      next,
+      remaining: next - count,
+      nextTitle: `千社達成・伝説の大巡礼神${nextStars}`
+    };
+  }
+
+  for (let i = PILGRIM_RANK_TIERS.length - 1; i >= 0; i--) {
+    const tier = PILGRIM_RANK_TIERS[i];
+    if (count >= tier.min) {
+      const nextTier = PILGRIM_RANK_TIERS[i + 1];
+      const nextTitle = nextTier ? nextTier.title : '千社達成・伝説の大巡礼神';
+      return {
+        level: tier.level,
+        title: tier.title,
+        icon: tier.icon,
+        prev: tier.min,
+        next: tier.next,
+        remaining: Math.max(0, tier.next - count),
+        nextTitle
+      };
+    }
+  }
+
+  const first = PILGRIM_RANK_TIERS[0];
+  return {
+    level: 0,
+    title: first.title,
+    icon: first.icon,
+    prev: 0,
+    next: 1,
+    remaining: 1,
+    nextTitle: PILGRIM_RANK_TIERS[1].title
+  };
 }
 
 export default function AlbumView({
@@ -222,7 +279,11 @@ export default function AlbumView({
   const templeCount = visitedList.filter((r) => r.type === 'temple').length;
 
   const rankInfo = getPilgrimRank(totalVisited);
-  const progressPercent = Math.min(100, Math.round((totalVisited / rankInfo.next) * 100));
+  const tierSpan = Math.max(1, rankInfo.next - rankInfo.prev);
+  const progressPercent = Math.min(
+    100,
+    Math.max(4, Math.round(((totalVisited - rankInfo.prev) / tierSpan) * 100))
+  );
 
   const filteredList = visitedList.filter((item) => {
     if (tabFilter === 'photo') return Boolean(item.photoDataUrl);
@@ -626,21 +687,28 @@ export default function AlbumView({
             {/* 右側：称号バッジ＆参拝カウンター */}
             <div className="flex-1 min-w-0 space-y-2.5">
               <div className="bg-black/25 backdrop-blur-sm rounded-2xl p-2.5 border border-white/20">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-serif font-bold text-white flex items-center gap-1">
-                    <span>{rankInfo.icon}</span>
-                    <span>{rankInfo.title}</span>
+                <div className="flex items-center justify-between gap-1 text-[11px]">
+                  <span className="font-serif font-bold text-white flex items-center gap-1 min-w-0">
+                    <span className="px-1.5 py-0.5 rounded bg-kin/30 border border-kin/60 text-[9px] font-mono text-kin-light shrink-0">
+                      Lv.{rankInfo.level}
+                    </span>
+                    <span className="shrink-0">{rankInfo.icon}</span>
+                    <span className="truncate">{rankInfo.title}</span>
                   </span>
-                  <span className="text-[10px] text-white/80 font-mono">
-                    {totalVisited}/{rankInfo.next}社寺
+                  <span className="text-[10px] text-white/85 font-mono shrink-0">
+                    {totalVisited}/{rankInfo.next}
                   </span>
                 </div>
                 <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden mt-1.5">
                   <div
                     className="h-full bg-gradient-to-r from-kin-light via-kin to-shuiro rounded-full transition-all duration-500"
-                    style={{ width: `${progressPercent}%` }}
+                    style={{ width: `${totalVisited === 0 ? 0 : progressPercent}%` }}
                   />
                 </div>
+                <p className="text-[9px] text-white/75 mt-1 truncate">
+                  あと<span className="font-bold text-kin-light mx-0.5">{rankInfo.remaining}</span>
+                  社寺で「{rankInfo.nextTitle}」
+                </p>
               </div>
 
               <div className="grid grid-cols-3 gap-1.5 text-center">

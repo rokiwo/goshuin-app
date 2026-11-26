@@ -218,10 +218,13 @@ export default function MapView({
   flyTarget,
   onRecenterUser,
   searchRadiusKm = 10,
-  onChangeRadius
+  onChangeRadius,
+  isCoupleConnected = false,
+  onQuickSyncCouple
 }) {
   // デフォルトで「Googleマップ（日本語標準）」を表示
   const [tileStyleKey, setTileStyleKey] = useState('google_road');
+  const [isQuickFavSyncing, setIsQuickFavSyncing] = useState(false);
   const [mapCenter, setMapCenter] = useState(null);
   const [showSearchHereBtn, setShowSearchHereBtn] = useState(false);
 
@@ -280,11 +283,14 @@ export default function MapView({
     const timer = setTimeout(
       async () => {
         try {
+          const distanceOrigin = userLocation?.isFallback
+            ? mapCenter || searchCenter || userLocation
+            : userLocation;
           const list = await searchShrineCandidatesByName(
             q,
             '',
             spots,
-            mapCenter || searchCenter || userLocation,
+            distanceOrigin,
             {
               signal: controller.signal,
               onPartialResults: (partial) => {
@@ -499,6 +505,7 @@ export default function MapView({
   const filteredSpots = React.useMemo(
     () =>
       allMapSpots.filter((spot) => {
+        if (filterType === 'goshuin') return Boolean(spot.hasGoshuin);
         if (filterType === 'shrine') return spot.type === 'shrine';
         if (filterType === 'temple') return spot.type === 'temple';
         if (filterType === 'favorite') {
@@ -791,10 +798,31 @@ export default function MapView({
                 )}
               </>
             )}
+            {isCoupleConnected && onQuickSyncCouple && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isQuickFavSyncing) return;
+                  setIsQuickFavSyncing(true);
+                  try {
+                    await onQuickSyncCouple();
+                  } catch {
+                    // ignore
+                  } finally {
+                    setIsQuickFavSyncing(false);
+                  }
+                }}
+                className="ml-auto px-2 py-1 rounded-full bg-pink-600/90 hover:bg-pink-600 text-white text-[10px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-1 active:scale-95 transition border border-white/20"
+                title="お二人の最新お気に入りを今すぐ同期"
+              >
+                <RefreshCw className={`w-2.5 h-2.5 ${isQuickFavSyncing ? 'animate-spin' : ''}`} />
+                <span>{isQuickFavSyncing ? '同期中' : '共有更新'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onFilterChange('all')}
-              className="ml-auto px-2 py-1 rounded-full bg-shuiro/90 hover:bg-shuiro text-washi text-[10px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-0.5 active:scale-95 transition border border-white/20"
+              className={`${isCoupleConnected && onQuickSyncCouple ? '' : 'ml-auto '}px-2 py-1 rounded-full bg-shuiro/90 hover:bg-shuiro text-washi text-[10px] font-serif font-bold whitespace-nowrap shrink-0 flex items-center gap-0.5 active:scale-95 transition border border-white/20`}
               title="お気に入り絞込を解除して全社寺表示に戻す"
             >
               <X className="w-3 h-3" />
@@ -818,6 +846,19 @@ export default function MapView({
                 }`}
               >
                 全社寺({allMapSpots.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => onFilterChange('goshuin')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap ${
+                  filterType === 'goshuin'
+                    ? 'bg-kin text-sumi font-bold shadow-sm'
+                    : 'text-kin-light hover:text-washi'
+                }`}
+                title="社務所・公式サイト・Wikipedia等で御朱印の授与実績が有力な社寺に絞り込み"
+              >
+                <Sparkles className="w-3 h-3 shrink-0" />
+                <span>御朱印有力({allMapSpots.filter((s) => s.hasGoshuin).length})</span>
               </button>
               <button
                 type="button"
@@ -1067,6 +1108,11 @@ export default function MapView({
                           >
                             {isShrine ? '神社' : '寺院'}
                           </span>
+                          {spot.hasGoshuin && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-serif font-bold bg-kin/20 text-sumi border border-kin/50">
+                              {spot.isSeed ? '定番' : '御朱印有力'}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1">
@@ -1092,8 +1138,11 @@ export default function MapView({
                               <CheckCircle2 className="w-3 h-3" /> 済
                             </span>
                           )}
-                          <span className="text-[10px] font-medium text-sumi-muted">
-                            {spot.distanceKm != null ? `${spot.distanceKm}km` : ''}
+                          <span className="text-[10px] font-medium text-sumi-muted whitespace-nowrap">
+                            {userLocation?.isFallback
+                              ? ''
+                              : spot.distanceLabel ||
+                                (spot.distanceKm != null ? `${spot.distanceKm}km` : '')}
                           </span>
                         </div>
                       </div>

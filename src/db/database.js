@@ -778,6 +778,19 @@ export async function saveFavoriteSpot(spot, updates = {}) {
     existing?.prefecture ||
     extractPrefectureFromSpot(spot);
 
+  const parsedLat =
+    spot.lat !== undefined && spot.lat !== null
+      ? Number(spot.lat)
+      : existing?.lat !== undefined && existing?.lat !== null
+        ? Number(existing.lat)
+        : undefined;
+  const parsedLng =
+    spot.lng !== undefined && spot.lng !== null
+      ? Number(spot.lng)
+      : existing?.lng !== undefined && existing?.lng !== null
+        ? Number(existing.lng)
+        : undefined;
+
   const record = {
     spotId: spot.id,
     name: spot.name,
@@ -785,13 +798,30 @@ export async function saveFavoriteSpot(spot, updates = {}) {
     denomination: spot.denomination || existing?.denomination || (spot.type === 'temple' ? '仏教（寺院）' : '神道（神社）'),
     address: spot.address || existing?.address || '',
     prefecture,
-    lat: typeof spot.lat === 'number' ? spot.lat : existing?.lat,
-    lng: typeof spot.lng === 'number' ? spot.lng : existing?.lng,
+    lat: !Number.isNaN(parsedLat) ? parsedLat : undefined,
+    lng: !Number.isNaN(parsedLng) ? parsedLng : undefined,
     memo: updates.memo !== undefined ? updates.memo : (existing?.memo ?? ''),
     sampleGoshuin: spot.sampleGoshuin || existing?.sampleGoshuin || [],
     createdAt: existing?.createdAt || now,
     updatedAt: now
   };
+
+  try {
+    const rawDel = localStorage.getItem('goshuin_pending_deleted_favs');
+    if (rawDel) {
+      const parsed = JSON.parse(rawDel);
+      if (parsed && parsed[spot.id]) {
+        delete parsed[spot.id];
+        if (Object.keys(parsed).length === 0) {
+          localStorage.removeItem('goshuin_pending_deleted_favs');
+        } else {
+          localStorage.setItem('goshuin_pending_deleted_favs', JSON.stringify(parsed));
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   await db.favorites.put(record);
   triggerBackgroundSync();
@@ -803,16 +833,15 @@ export async function saveFavoriteSpot(spot, updates = {}) {
  */
 export async function removeFavoriteSpot(spotId) {
   if (!spotId) return;
-  await db.favorites.delete(spotId);
   try {
-    const savedPasscode = localStorage.getItem('goshuin_couple_passcode');
-    if (savedPasscode) {
-      const { deleteCoupleFavoriteSpot } = await import('../services/coupleSyncService.js');
-      await deleteCoupleFavoriteSpot(spotId).catch(() => {});
-    }
+    const rawDel = localStorage.getItem('goshuin_pending_deleted_favs');
+    const parsed = rawDel ? JSON.parse(rawDel) : {};
+    parsed[spotId] = new Date().toISOString();
+    localStorage.setItem('goshuin_pending_deleted_favs', JSON.stringify(parsed));
   } catch {
-    // オフライン時は無視
+    // ignore
   }
+  await db.favorites.delete(spotId);
   triggerBackgroundSync();
 }
 

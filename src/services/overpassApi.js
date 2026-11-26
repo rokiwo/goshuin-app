@@ -2,7 +2,9 @@ import { SEED_SPOTS } from '../data/seedSpots.js';
 import { extractPrefectureFromSpot } from '../db/database.js';
 import {
   reverseGeocodeJapaneseAddressFast,
-  isProperJapaneseAddress
+  isProperJapaneseAddress,
+  calcDistanceMeters,
+  formatDistanceLabel
 } from './shrineSearchService.js';
 
 // Overpass APIのミラーエンドポイント一覧（通信失敗時の自動フォールバック用）
@@ -151,15 +153,33 @@ async function fetchWikipediaFamousTemplesAndShrines(centerLat, centerLng, radiu
 
 /**
  * Overpass API と Wikipedia Geosearch API を並列実行し、
- * マスターデータ（確実に御朱印がある有名社寺）と統合して大量の神社・寺院を高速に返す関数
+ * マスターデータ（確実に御朱印がある有名社寺）と統合して神社・寺院を高速に返す関数
+ * ※検索中心座標（areaDistanceKm）と現在地からの実距離（distanceKm）を分離し、地図スクロール時も現在地距離が狂わない設計
  */
-export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters = 12000) {
-  // 1. マスターデータ全件に現在地からの距離を付与
-  const enrichedSeeds = SEED_SPOTS.map((spot) => ({
-    ...spot,
-    distanceKm: calculateDistanceKm(centerLat, centerLng, spot.lat, spot.lng),
-    isSeed: true
-  }));
+export async function fetchNearbyWorshipSpots(
+  centerLat,
+  centerLng,
+  radiusMeters = 12000,
+  userLat = null,
+  userLng = null
+) {
+  const originLat = typeof userLat === 'number' && !Number.isNaN(userLat) ? userLat : centerLat;
+  const originLng = typeof userLng === 'number' && !Number.isNaN(userLng) ? userLng : centerLng;
+
+  // 1. マスターデータ全件に検索中心距離と現在地距離を付与（ホトカミ・定番確認済み社寺）
+  const enrichedSeeds = SEED_SPOTS.map((spot) => {
+    const meters = calcDistanceMeters(originLat, originLng, spot.lat, spot.lng);
+    return {
+      ...spot,
+      areaDistanceKm: calculateDistanceKm(centerLat, centerLng, spot.lat, spot.lng),
+      distanceMeters: meters,
+      distanceKm: Math.round((meters / 1000) * 10) / 10,
+      distanceLabel: formatDistanceLabel(meters),
+      hasGoshuin: true,
+      goshuinConfidence: 'verified',
+      isSeed: true
+    };
+  });
 
   // 2. Wikipedia Geosearch（有名社寺抽出）と Overpass API（OSM全社寺抽出）を並列スタート
   const wikiPromise = fetchWikipediaFamousTemplesAndShrines(centerLat, centerLng, radiusMeters);
@@ -269,9 +289,29 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
     const block = tags['addr:block_number'] || tags['addr:housenumber'] || '';
     const fullAddr = tags['addr:full'] || `${tags['addr:province'] || ''}${city}${sub}${block}`.trim();
 
-    // ウェブサイトやwikidataタグがある寺社は御朱印授与確率が特に高い
-    const hasRichTag = Boolean(tags.website || tags.wikidata || tags.wikipedia);
+    // 社務所・公式サイト・Wikipedia・連絡先・主要社格がある寺社を「御朱印有力（ホトカミ掲載クラス）」として判定（小祠・道祖神は除外）
+    const isWaysideMinor =
+      tags.historic === 'wayside_shrine' ||
+      /(?:小祠|祠|道祖神|庚申塔|馬頭観音|地蔵尊)$/.test(name);
+    const hasRichTag =
+      !isWaysideMinor &&
+      Boolean(
+        tags.goshuin === 'yes' ||
+          tags['goshuin:ja'] ||
+          tags.website ||
+          tags['contact:website'] ||
+          tags.url ||
+          tags.wikidata ||
+          tags.wikipedia ||
+          tags.phone ||
+          tags['contact:phone'] ||
+          tags.opening_hours ||
+          /(?:神宮|大社|天満宮|東照宮|護国神社|八幡宮|総本山|大本山|本山|大師|観音寺|不動院)/.test(
+            name
+          )
+      );
 
+    const meters = calcDistanceMeters(originLat, originLng, lat, lng);
     const newSpot = {
       id: `osm-${el.type}-${el.id}`,
       name,
@@ -281,14 +321,18 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
       address: fullAddr || '',
       lat,
       lng,
-      distanceKm: calculateDistanceKm(centerLat, centerLng, lat, lng),
+      areaDistanceKm: calculateDistanceKm(centerLat, centerLng, lat, lng),
+      distanceMeters: meters,
+      distanceKm: Math.round((meters / 1000) * 10) / 10,
+      distanceLabel: formatDistanceLabel(meters),
       description:
         tags.description ||
         (type === 'shrine'
-          ? `${name}は地域で篤く崇敬される神社です。詳細シートのInstagram・ホトカミ・AI検索から御朱印の授与状況を確認できます。`
-          : `${name}は歴史と信仰を伝える寺院です。詳細シートのInstagram・ホトカミ・AI検索から御朱印の授与状況を確認できます。`),
+          ? `${name}は地域で篤く崇敬される神社です。詳細シートのホトカミ・Instagram・AI検索から御朱印の授与状況を確認できます。`
+          : `${name}は歴史と信仰を伝える寺院です。詳細シートのホトカミ・Instagram・AI検索から御朱印の授与状況を確認できます。`),
       sampleGoshuin: buildDynamicSampleGoshuin(name, type, denomination),
       hasGoshuin: hasRichTag,
+      goshuinConfidence: hasRichTag ? 'high' : 'unknown',
       isSeed: false
     };
 
@@ -296,13 +340,31 @@ export async function fetchNearbyWorshipSpots(centerLat, centerLng, radiusMeters
     dynamicSpots.push(newSpot);
   }
 
-  // 統合して「指定半径内」のみに絞り込み、現在地から近い順にソート
+  // Wikipedia由来スポットにも検索中心距離と現在地距離・御朱印有力フラグを統一付与
+  for (const w of dynamicSpots) {
+    if (w.areaDistanceKm == null) {
+      const meters = calcDistanceMeters(originLat, originLng, w.lat, w.lng);
+      w.areaDistanceKm = calculateDistanceKm(centerLat, centerLng, w.lat, w.lng);
+      w.distanceMeters = meters;
+      w.distanceKm = Math.round((meters / 1000) * 10) / 10;
+      w.distanceLabel = formatDistanceLabel(meters);
+      w.goshuinConfidence = 'high';
+    }
+  }
+
+  // 統合して「検索中心から指定半径内」に絞り込み、検索中心から近い順（同距離帯では御朱印有力社寺を優先）にソート
   const radiusKm = radiusMeters / 1000;
   const combined = [...enrichedSeeds, ...dynamicSpots]
-    .filter((s) => s.distanceKm <= radiusKm)
-    .sort((a, b) => a.distanceKm - b.distanceKm);
+    .filter((s) => s.areaDistanceKm <= radiusKm)
+    .sort((a, b) => {
+      const bandDiff = Math.abs(a.areaDistanceKm - b.areaDistanceKm);
+      if (bandDiff < 0.4 && Boolean(a.hasGoshuin) !== Boolean(b.hasGoshuin)) {
+        return a.hasGoshuin ? -1 : 1;
+      }
+      return a.areaDistanceKm - b.areaDistanceKm;
+    });
 
-  // 近い上位10件のうち住所が未取得のものを無料逆ジオコーディングで「都道府県＋市区町村＋町名」へ補完
+  // 検索中心に近い上位10件のうち住所が未取得のものを無料逆ジオコーディングで「都道府県＋市区町村＋町名」へ補完
   const needsAddr = combined
     .filter((s) => !isProperJapaneseAddress(s.address))
     .slice(0, 10);

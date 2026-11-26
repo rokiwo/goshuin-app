@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Compass, BookOpen, MapPin, Sparkles, KeyRound, PlusCircle, Heart, HardDrive } from 'lucide-react';
 import { db, getPlaceId, extractPrefectureFromSpot } from './db/database.js';
 import { DEFAULT_CENTER, SEED_SPOTS } from './data/seedSpots.js';
 import { fetchNearbyWorshipSpots, calculateDistanceKm } from './services/overpassApi.js';
+import { calcDistanceMeters, formatDistanceLabel } from './services/shrineSearchService.js';
 import { getGeminiApiKey } from './services/geminiService.js';
 import {
   getSavedCouplePasscode,
-  syncCoupleGoshuinData
+  syncCoupleGoshuinData,
+  syncCoupleIfConnectedThrottled
 } from './services/coupleSyncService.js';
 import MapView from './components/MapView.jsx';
 import SpotBottomSheet from './components/SpotBottomSheet.jsx';
@@ -156,53 +158,93 @@ function AppContent({ activeTab, setActiveTab }) {
     return map;
   }, [visitRecords]);
 
-  // 過去の御朱印・お気に入り登録済み社寺・夫婦共有で追加されたカスタム寺社もマップのピン一覧に統合する
+  // 過去の御朱印・お気に入り登録済み社寺・夫婦共有で追加されたカスタム寺社もマップのピン一覧に統合し、常に最新の現在地（userLocation）からの正確な距離を再計算する
   const mergedSpots = React.useMemo(() => {
-    const existingIds = new Set(spots.map((s) => s.id));
+    const attachLiveDistance = (spotObj) => {
+      const lat = Number(spotObj.lat);
+      const lng = Number(spotObj.lng);
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return spotObj;
+      const meters = calcDistanceMeters(userLocation.lat, userLocation.lng, lat, lng);
+      return {
+        ...spotObj,
+        lat,
+        lng,
+        distanceMeters: meters,
+        distanceKm: Math.round((meters / 1000) * 10) / 10,
+        distanceLabel: formatDistanceLabel(meters)
+      };
+    };
+
+    const updatedBaseSpots = spots.map(attachLiveDistance);
+    const existingIds = new Set(updatedBaseSpots.map((s) => s.id));
     const customVisitedSpots = [];
     for (const rec of visitRecords || []) {
       const pid = getPlaceId(rec);
-      if (rec.visited && !existingIds.has(pid) && typeof rec.lat === 'number' && typeof rec.lng === 'number') {
+      const rLat = Number(rec.lat);
+      const rLng = Number(rec.lng);
+      if (rec.visited && !existingIds.has(pid) && !Number.isNaN(rLat) && !Number.isNaN(rLng)) {
         existingIds.add(pid);
-        customVisitedSpots.push({
-          id: pid,
-          name: rec.name,
-          type: rec.type || 'shrine',
-          denomination: rec.denomination || '参拝記録',
-          address: rec.address || '',
-          lat: rec.lat,
-          lng: rec.lng,
-          distanceKm: calculateDistanceKm(userLocation.lat, userLocation.lng, rec.lat, rec.lng),
-          description: 'マイ御朱印帳に登録された参拝スポットです。',
-          sampleGoshuin: rec.sampleGoshuin || [],
-          hasGoshuin: true
-        });
+        customVisitedSpots.push(
+          attachLiveDistance({
+            id: pid,
+            name: rec.name,
+            type: rec.type || 'shrine',
+            denomination: rec.denomination || '参拝記録',
+            address: rec.address || '',
+            lat: rLat,
+            lng: rLng,
+            description: 'マイ御朱印帳に登録された参拝スポットです。',
+            sampleGoshuin: rec.sampleGoshuin || [],
+            hasGoshuin: true,
+            goshuinConfidence: 'verified'
+          })
+        );
       }
     }
 
     const customFavoriteSpots = [];
     for (const fav of favoriteRecords || []) {
-      if (!existingIds.has(fav.spotId) && typeof fav.lat === 'number' && typeof fav.lng === 'number') {
+      const fLat = Number(fav.lat);
+      const fLng = Number(fav.lng);
+      if (fav.spotId && !existingIds.has(fav.spotId) && !Number.isNaN(fLat) && !Number.isNaN(fLng)) {
         existingIds.add(fav.spotId);
-        customFavoriteSpots.push({
-          id: fav.spotId,
-          name: fav.name,
-          type: fav.type || 'shrine',
-          denomination: fav.denomination || (fav.type === 'temple' ? '仏教（寺院）' : '神道（神社）'),
-          address: fav.address || fav.prefecture || '',
-          prefecture: fav.prefecture || '',
-          lat: fav.lat,
-          lng: fav.lng,
-          distanceKm: calculateDistanceKm(userLocation.lat, userLocation.lng, fav.lat, fav.lng),
-          description: `${fav.prefecture || ''}のお気に入りに登録された参拝スポットです。`,
-          sampleGoshuin: fav.sampleGoshuin || [],
-          hasGoshuin: true
-        });
+        customFavoriteSpots.push(
+          attachLiveDistance({
+            id: fav.spotId,
+            name: fav.name,
+            type: fav.type || 'shrine',
+            denomination: fav.denomination || (fav.type === 'temple' ? '仏教（寺院）' : '神道（神社）'),
+            address: fav.address || fav.prefecture || '',
+            prefecture: fav.prefecture || '',
+            lat: fLat,
+            lng: fLng,
+            description: `${fav.prefecture || ''}のお気に入りに登録された参拝スポットです。`,
+            sampleGoshuin: fav.sampleGoshuin || [],
+            hasGoshuin: true
+          })
+        );
       }
     }
 
-    return [...spots, ...customVisitedSpots, ...customFavoriteSpots];
+    return [...updatedBaseSpots, ...customVisitedSpots, ...customFavoriteSpots];
   }, [spots, visitRecords, favoriteRecords, userLocation.lat, userLocation.lng]);
+
+  // 選択中スポットにも常に最新の現在地からの距離を反映
+  const liveSelectedSpot = React.useMemo(() => {
+    if (!selectedSpot) return null;
+    const sLat = Number(selectedSpot.lat);
+    const sLng = Number(selectedSpot.lng);
+    if (Number.isNaN(sLat) || Number.isNaN(sLng)) return selectedSpot;
+    const meters = calcDistanceMeters(userLocation.lat, userLocation.lng, sLat, sLng);
+    return {
+      ...selectedSpot,
+      lat: sLat,
+      lng: sLng,
+      distanceMeters: meters,
+      distanceKm: Math.round((meters / 1000) * 10) / 10,
+      distanceLabel: formatDistanceLabel(meters)
+    };
+  }, [selectedSpot, userLocation.lat, userLocation.lng]);
 
   const visitedCount = React.useMemo(
     () => (visitRecords || []).filter((r) => r.visited).length,
@@ -240,16 +282,69 @@ function AppContent({ activeTab, setActiveTab }) {
         })
         .catch(() => {});
     }
+
+    const handleForegroundSync = () => {
+      if (document.visibilityState === 'visible' && getSavedCouplePasscode()) {
+        syncCoupleIfConnectedThrottled(6000)
+          .then((res) => {
+            if (res?.hasApiKeyNow) setHasApiKey(true);
+          })
+          .catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleForegroundSync);
+    window.addEventListener('focus', handleForegroundSync);
+    window.addEventListener('online', handleForegroundSync);
+
+    const periodicTimer = setInterval(() => {
+      if (document.visibilityState === 'visible' && getSavedCouplePasscode()) {
+        syncCoupleIfConnectedThrottled(25000).catch(() => {});
+      }
+    }, 45000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleForegroundSync);
+      window.removeEventListener('focus', handleForegroundSync);
+      window.removeEventListener('online', handleForegroundSync);
+      clearInterval(periodicTimer);
+    };
   }, []);
 
-  // 指定座標から「指定半径」の神社・寺院をWikipedia Geosearch＋Overpass APIで並列検索
+  // お気に入りを使う画面（AIコース／地図のお気に入り絞込／御朱印帳）を開いた瞬間にも最新共有データを自動取得
+  useEffect(() => {
+    if (!isCoupleConnected) return;
+    if (activeTab === 'concierge' || activeTab === 'album' || filterType === 'favorite') {
+      syncCoupleIfConnectedThrottled(5000).catch(() => {});
+    }
+  }, [activeTab, filterType, isCoupleConnected]);
+
+  const handleQuickSyncCouple = useCallback(async () => {
+    if (!getSavedCouplePasscode()) return { ok: false, skipped: true };
+    const res = await syncCoupleGoshuinData();
+    if (res?.hasApiKeyNow) setHasApiKey(true);
+    return res;
+  }, []);
+
+  const userLocationRef = useRef(userLocation);
+  userLocationRef.current = userLocation;
+  const hadRealGpsFixRef = useRef(false);
+
+  // 指定座標から「指定半径」の神社・寺院をWikipedia Geosearch＋Overpass APIで並列検索（現在地距離は常にuserLocation基準）
   const loadNearbySpots = useCallback(async (lat, lng, radiusKmArg) => {
     const radiusKm =
       radiusKmArg || Number(localStorage.getItem('goshuin_search_radius_km')) || 10;
     setIsLoadingOverpass(true);
     setSearchCenter({ lat, lng });
     try {
-      const result = await fetchNearbyWorshipSpots(lat, lng, radiusKm * 1000);
+      const curUser = userLocationRef.current;
+      const result = await fetchNearbyWorshipSpots(
+        lat,
+        lng,
+        radiusKm * 1000,
+        curUser?.lat,
+        curUser?.lng
+      );
       setSpots(result.spots);
       setStatusMessage(`半径${radiusKm}km以内の御朱印社寺 ${result.spots.length}件を表示中`);
     } catch {
@@ -266,35 +361,83 @@ function AppContent({ activeTab, setActiveTab }) {
     loadNearbySpots(searchCenter.lat, searchCenter.lng, km);
   };
 
-  // 初回マウント時にGPS現在地を取得し、失敗時は明石市（34.6494, 134.9961）で検索実行
+  // 初回高速測位（Wi-Fi/基地局）＋高精度GPS継続追跡（watchPosition）で現在地ズレ・タイムアウトを防止
   useEffect(() => {
     if (!navigator.geolocation) {
       loadNearbySpots(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng);
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setUserLocation({ lat, lng, isFallback: false });
-        setFlyTarget({ lat, lng, zoom: 12 });
+    let unmounted = false;
+
+    const applyGpsFix = (pos) => {
+      if (unmounted || !pos?.coords) return;
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const accuracy = pos.coords.accuracy || 999;
+      if (typeof lat !== 'number' || typeof lng !== 'number' || Number.isNaN(lat) || Number.isNaN(lng)) {
+        return;
+      }
+
+      const prev = userLocationRef.current;
+      const movedMeters = prev?.isFallback
+        ? Infinity
+        : calcDistanceMeters(prev.lat, prev.lng, lat, lng);
+      const improvedAccuracy = (prev?.accuracy || 9999) - accuracy > 40;
+
+      if (!hadRealGpsFixRef.current) {
+        hadRealGpsFixRef.current = true;
+        setUserLocation({ lat, lng, accuracy, isFallback: false });
+        setFlyTarget({ lat, lng, zoom: 13 });
         loadNearbySpots(lat, lng);
+      } else if (movedMeters >= 25 || improvedAccuracy) {
+        setUserLocation({ lat, lng, accuracy, isFallback: false });
+      }
+    };
+
+    // 1. 屋内でも1秒以内に返る高速ネットワーク測位を先行実行
+    navigator.geolocation.getCurrentPosition(
+      applyGpsFix,
+      () => {
+        // 高精度watchPosition側でリトライするため即座には諦めない
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 4500,
+        maximumAge: 120000
+      }
+    );
+
+    // 2. 高精度GPSで移動中もリアルタイム追跡（15秒待っても両方失敗した時のみ初期中心を読み込む）
+    const fallbackTimer = setTimeout(() => {
+      if (!unmounted && !hadRealGpsFixRef.current) {
+        loadNearbySpots(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng);
+      }
+    }, 6500);
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        clearTimeout(fallbackTimer);
+        applyGpsFix(pos);
       },
       () => {
-        setUserLocation({
-          lat: DEFAULT_CENTER.lat,
-          lng: DEFAULT_CENTER.lng,
-          isFallback: true
-        });
-        loadNearbySpots(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng);
+        if (!unmounted && !hadRealGpsFixRef.current) {
+          clearTimeout(fallbackTimer);
+          loadNearbySpots(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng);
+        }
       },
       {
         enableHighAccuracy: true,
-        timeout: 6000,
-        maximumAge: 60000
+        timeout: 15000,
+        maximumAge: 10000
       }
     );
+
+    return () => {
+      unmounted = true;
+      clearTimeout(fallbackTimer);
+      navigator.geolocation.clearWatch(watchId);
+    };
   }, [loadNearbySpots]);
 
   // スポット選択時に地図をスムーズに移動してボトムシートを表示
@@ -318,8 +461,35 @@ function AppContent({ activeTab, setActiveTab }) {
     setActiveTab('map');
   };
 
-  // 現在地へ戻るボタン
+  // 現在地へ戻るボタン（タップ時に最新GPSを再測位して正確な現在地へ移動）
   const handleRecenterUser = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          hadRealGpsFixRef.current = true;
+          setUserLocation({
+            lat,
+            lng,
+            accuracy: pos.coords.accuracy || 50,
+            isFallback: false
+          });
+          setFlyTarget({ lat, lng, zoom: 14 });
+          loadNearbySpots(lat, lng);
+        },
+        () => {
+          setFlyTarget({
+            lat: userLocation.lat,
+            lng: userLocation.lng,
+            zoom: 13
+          });
+          loadNearbySpots(userLocation.lat, userLocation.lng);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+      return;
+    }
     setFlyTarget({
       lat: userLocation.lat,
       lng: userLocation.lng,
@@ -434,6 +604,8 @@ function AppContent({ activeTab, setActiveTab }) {
               onRecenterUser={handleRecenterUser}
               searchRadiusKm={searchRadiusKm}
               onChangeRadius={handleChangeRadius}
+              isCoupleConnected={isCoupleConnected}
+              onQuickSyncCouple={handleQuickSyncCouple}
             />
           )}
 
@@ -446,6 +618,8 @@ function AppContent({ activeTab, setActiveTab }) {
               onSelectSpotOnMap={handleSelectSpot}
               onShowPrefectureFavoritesOnMap={handleShowPrefectureFavoritesOnMap}
               onOpenAiSettings={() => setIsAiModalOpen(true)}
+              isCoupleConnected={isCoupleConnected}
+              onQuickSyncCouple={handleQuickSyncCouple}
             />
           )}
 
@@ -522,9 +696,10 @@ function AppContent({ activeTab, setActiveTab }) {
         </nav>
 
         <SpotBottomSheet
-          spot={selectedSpot}
-          visitRecord={selectedSpot ? visitMap[selectedSpot.id] : null}
-          favoriteRecord={selectedSpot ? favoriteMap[selectedSpot.id] : null}
+          spot={liveSelectedSpot}
+          userLocation={userLocation}
+          visitRecord={liveSelectedSpot ? visitMap[liveSelectedSpot.id] : null}
+          favoriteRecord={liveSelectedSpot ? favoriteMap[liveSelectedSpot.id] : null}
           allVisits={visitRecords || []}
           books={goshuinBooks || []}
           onClose={() => setSelectedSpot(null)}

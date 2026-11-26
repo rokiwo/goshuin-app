@@ -50,17 +50,23 @@ import {
 } from '../services/geminiService.js';
 import {
   fetchRealWebPhotos,
-  buildRealGoshuinLinks
+  buildRealGoshuinLinks,
+  extractSpotAreaKeywords
 } from '../services/realGoshuinService.js';
+import {
+  calcDistanceMeters,
+  formatDistanceLabel
+} from '../services/shrineSearchService.js';
 import { useBackHandler } from '../contexts/BackHandlerContext.jsx';
 
 /**
  * ピンまたはカードをタップした際に画面下部からスムーズにスライドアップする
- * 「実物Web写真＆Instagram/Google画像/ホトカミ連携・参拝日付編集・Gemini 3.8 Flash AI調査ボトムシート」
+ * 「実物Web写真＆ホトカミ/Instagram/Google画像連携・参拝日付編集・AI調査ボトムシート」
  * ★同じ社寺の複数御朱印登録・巡拝グループ分け・実物御朱印帳への振り分けに対応
  */
 export default function SpotBottomSheet({
   spot,
+  userLocation = null,
   visitRecord,
   favoriteRecord = null,
   allVisits = [],
@@ -152,7 +158,7 @@ export default function SpotBottomSheet({
     setAiError('');
   }, [activeRecord?.spotId, activeRecord?.memo, activeRecord?.visitedDate, activeRecord?.groupName, activeRecord?.bookId]);
 
-  // スポットを開いたときにWeb上の実在写真（Wikimedia / Wikipedia公開写真）を自動検索
+  // スポットを開いたときにWeb上の実在写真（Wikimedia / Wikipedia公開写真・5km座標一致＆地域限定）を自動検索
   useEffect(() => {
     let active = true;
     if (!spot?.name) {
@@ -160,7 +166,7 @@ export default function SpotBottomSheet({
       return;
     }
     setIsLoadingWebPhotos(true);
-    fetchRealWebPhotos(spot.name)
+    fetchRealWebPhotos(spot)
       .then((photos) => {
         if (active) setWebPhotos(photos);
       })
@@ -171,7 +177,7 @@ export default function SpotBottomSheet({
     return () => {
       active = false;
     };
-  }, [spot?.id, spot?.name]);
+  }, [spot?.id, spot?.name, spot?.address, spot?.lat, spot?.lng]);
 
   if (!spot) return null;
 
@@ -431,9 +437,9 @@ export default function SpotBottomSheet({
         <div className="pt-2 pb-2.5 px-4 bg-washi/95 border-b border-washi-border shrink-0">
           <div className="w-10 h-1 bg-sumi/20 rounded-full mx-auto mb-2" />
 
-          {/* 1行目：種別・距離 ＆ 右側の「★お気に入り」「閉じる」ボタン */}
+          {/* 1行目：種別・御朱印有力バッジ・正確な現在地距離 ＆ 右側の「★お気に入り」「閉じる」ボタン */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
               <span
                 className={`px-2 py-0.5 rounded-full text-[11px] font-bold text-washi whitespace-nowrap shrink-0 ${
                   isShrine ? 'bg-shuiro' : 'bg-tera'
@@ -441,11 +447,35 @@ export default function SpotBottomSheet({
               >
                 {isShrine ? '神社' : '寺院'}
               </span>
-              {spot.distanceKm != null && (
-                <span className="text-[11px] font-semibold text-kin-dark whitespace-nowrap">
-                  現在地から {spot.distanceKm}km
+              {spot.hasGoshuin && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-serif font-bold bg-kin/25 text-sumi border border-kin/60 whitespace-nowrap shrink-0">
+                  {spot.isSeed ? '御朱印定番' : '御朱印有力'}
                 </span>
               )}
+              {(() => {
+                if (userLocation?.isFallback) {
+                  return (
+                    <span className="text-[10px] font-medium text-sumi-muted whitespace-nowrap">
+                      GPS未測位
+                    </span>
+                  );
+                }
+                const hasCoords =
+                  typeof userLocation?.lat === 'number' &&
+                  typeof userLocation?.lng === 'number' &&
+                  typeof spot?.lat === 'number' &&
+                  typeof spot?.lng === 'number';
+                const label = hasCoords
+                  ? formatDistanceLabel(
+                      calcDistanceMeters(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
+                    )
+                  : spot.distanceLabel || (spot.distanceKm != null ? `${spot.distanceKm}km` : '');
+                return label ? (
+                  <span className="text-[11px] font-semibold text-kin-dark whitespace-nowrap">
+                    現在地から {label}
+                  </span>
+                ) : null;
+              })()}
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
@@ -887,20 +917,20 @@ export default function SpotBottomSheet({
             )}
           </div>
 
-          {/* Instagram・Google画像・ホトカミ等で「実際にもらえる本物の御朱印写真」を見るセクション */}
+          {/* ホトカミ・Instagram・Google画像等で「実際にもらえる本物の御朱印写真」を見るセクション（地域指定・同名混入防止） */}
           <div className="rounded-2xl bg-washi border-2 border-kin/60 p-4 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="font-serif font-black text-sm text-sumi flex items-center gap-1.5">
                 <Search className="w-4 h-4 text-shuiro" />
-                SNS・Webで「実際にもらえる御朱印写真」を見る
+                ホトカミ・SNSで「実物の御朱印」を確認
               </h3>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-shuiro/10 text-shuiro font-bold">
-                実物投稿
+                📍{extractSpotAreaKeywords(spot).areaLabel}で同名除外
               </span>
             </div>
 
             <p className="text-[11px] text-sumi-muted leading-relaxed">
-              「{spot.name}」で参拝者が実際に拝受して投稿している本物の御朱印写真（通常・季節限定・切り絵など）をワンタップで確認できます。
+              全国の同名神社が混ざらないよう、所在地（{extractSpotAreaKeywords(spot).areaLabel}）を自動付与してホトカミ授与実績・Instagram・Google画像を検索します。
             </p>
 
             {isLoadingWebPhotos ? (

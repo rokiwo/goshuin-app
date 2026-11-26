@@ -18,7 +18,8 @@ import {
   Navigation,
   Cpu,
   CheckSquare,
-  Square
+  Square,
+  RefreshCw
 } from 'lucide-react';
 import {
   generateAiPilgrimageRoute,
@@ -49,10 +50,32 @@ export default function AiConciergeView({
   visitMap = {},
   onSelectSpotOnMap,
   onShowPrefectureFavoritesOnMap,
-  onOpenAiSettings
+  onOpenAiSettings,
+  isCoupleConnected = false,
+  onQuickSyncCouple
 }) {
   // モード切替: 'favorites'（都道府県別お気に入り＆Gemini 4 Hydrogen最適巡拝ルート） | 'nearby'（現在地周辺モデルコース）
   const [routeMode, setRouteMode] = useState('favorites');
+  const [isQuickSyncing, setIsQuickSyncing] = useState(false);
+  const [quickSyncLabel, setQuickSyncLabel] = useState('');
+
+  const handleManualFavSync = async () => {
+    if (!onQuickSyncCouple || isQuickSyncing) return;
+    setIsQuickSyncing(true);
+    setQuickSyncLabel('');
+    try {
+      const res = await onQuickSyncCouple();
+      if (res?.ok) {
+        setQuickSyncLabel('同期済');
+        setTimeout(() => setQuickSyncLabel(''), 2500);
+      }
+    } catch {
+      setQuickSyncLabel('通信確認');
+      setTimeout(() => setQuickSyncLabel(''), 2500);
+    } finally {
+      setIsQuickSyncing(false);
+    }
+  };
 
   // 都道府県ごとのお気に入りグループ
   const prefectureGroups = useMemo(
@@ -365,6 +388,18 @@ export default function AiConciergeView({
                   </p>
                 </div>
               </div>
+              {isCoupleConnected && onQuickSyncCouple && (
+                <button
+                  type="button"
+                  onClick={handleManualFavSync}
+                  disabled={isQuickSyncing}
+                  className="shrink-0 px-2.5 py-1.5 rounded-xl bg-pink-50 border border-pink-300 text-pink-700 text-[10px] font-serif font-bold flex items-center gap-1 active:scale-95 transition disabled:opacity-60"
+                  title="お二人の最新お気に入りを今すぐ同期"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isQuickSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isQuickSyncing ? '同期中' : quickSyncLabel || '共有更新'}</span>
+                </button>
+              )}
             </div>
 
             {/* 神社クイック検索＆お気に入り追加バー */}
